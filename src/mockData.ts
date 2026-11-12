@@ -1,0 +1,982 @@
+import {
+  CaptainEvent,
+  CaptainMilestone,
+  FacilityDefinition,
+  MatchResult,
+  Player,
+  PlayerMood,
+  PlayerStatus,
+  ScheduleTask,
+  SquadCampDefinition,
+  Team,
+  WeeklyFixtureDefinition,
+} from './types';
+
+export const SQUAD_CAMP_OPTIONS: SquadCampDefinition[] = [
+  {
+    id: 'camp_attack',
+    title: 'Attacking & Finishing Camp',
+    subtitle: 'FWD/MID Shooting + Pace',
+    emoji: '⚽',
+    description:
+      'High-tempo 1v1 finishing, overlaps, and sprint gates. Drains squad Energy with zero automatic rest.',
+    energyCost: 24,
+    stressDelta: 12,
+    monetaryCost: 1200,
+    baseFailureRate: 0.04,
+    targetSummary: 'Shooting, Pace & Passing',
+    accentClass:
+      'bg-rose-500/15 border-rose-500/60 text-rose-200 shadow-rose-500/15',
+  },
+  {
+    id: 'camp_defense',
+    title: 'Defensive Block & Pressing',
+    subtitle: 'DEF Defending + Physical',
+    emoji: '🛡️',
+    description:
+      'Compact 2-defender zonal traps, physical shielding, and GK box positioning drills.',
+    energyCost: 24,
+    stressDelta: 12,
+    monetaryCost: 1200,
+    baseFailureRate: 0.04,
+    targetSummary: 'Defending, Physical & GK Aerials',
+    accentClass:
+      'bg-sky-500/15 border-sky-500/60 text-sky-200 shadow-sky-500/15',
+  },
+  {
+    id: 'camp_possession_gk',
+    title: 'Possession & GK Clinic',
+    subtitle: 'Passing + GK Reflexes',
+    emoji: '🎯',
+    description:
+      'One-touch futsal triangles for outfielders paired with point-blank shot-stopping for the keeper.',
+    energyCost: 20,
+    stressDelta: 10,
+    monetaryCost: 1100,
+    baseFailureRate: 0.03,
+    targetSummary: 'Passing, GK Reflexes & Handling',
+    accentClass:
+      'bg-indigo-500/15 border-indigo-500/60 text-indigo-200 shadow-indigo-500/15',
+  },
+  {
+    id: 'camp_scrimmage',
+    title: 'Full-Throttle 5v5 Scrimmage',
+    subtitle: 'All-Round + Captain Aura',
+    emoji: '🔥',
+    description:
+      'Demanding full-intensity intra-squad match prep. Raises all role stats & Captaincy, but heavily taxes Energy.',
+    energyCost: 28,
+    stressDelta: 15,
+    monetaryCost: 1500,
+    baseFailureRate: 0.06,
+    targetSummary: 'All Role Stats + Captaincy',
+    accentClass:
+      'bg-amber-500/15 border-amber-500/60 text-amber-200 shadow-amber-500/15',
+  },
+  {
+    id: 'camp_recovery',
+    title: 'Full Squad Recovery Week',
+    subtitle: '+50 Energy • 0% Fail Risk',
+    emoji: '🛌',
+    description:
+      'Cryotherapy, massage, and light film study. Restores fresh legs for Sunday and clears burnout risk (+0 stat gains).',
+    energyCost: -50,
+    stressDelta: -35,
+    monetaryCost: 500,
+    baseFailureRate: 0.0,
+    targetSummary: '+50 Stamina, -35 Stress, +8 Morale',
+    accentClass:
+      'bg-emerald-500/15 border-emerald-500/60 text-emerald-200 shadow-emerald-500/15',
+  },
+];
+
+export const FACILITY_CATALOG: FacilityDefinition[] = [
+  {
+    id: 'training_pitch_1',
+    name: 'Main 5-a-Side Futsal Court',
+    description: 'Standard hardwood indoor court for core shooting, sprint, and defensive drills.',
+    cost: 0,
+    weeklyUpkeep: 200,
+    perkSummary: 'Base training court (Unlocked at start)',
+  },
+  {
+    id: 'tactical_analysis_suite',
+    name: 'Video & Tactical Analysis Suite',
+    description: 'High-speed overhead cameras and smart boards for passing triangles and pressing triggers.',
+    cost: 7500,
+    weeklyUpkeep: 250,
+    perkSummary: '+15% Passing/Vision drill gains & +3% Match Tactical Synergy',
+  },
+  {
+    id: 'strength_gym',
+    name: 'Biomechanics & Strength Gym',
+    description: 'Explosive power racks and futsal conditioning sleds.',
+    cost: 9500,
+    weeklyUpkeep: 300,
+    perkSummary: '+15% Physical/Pace drill gains & -15% Match Stamina Drain',
+  },
+  {
+    id: 'medical_rehab_center',
+    name: 'Cryotherapy & Sports Science Clinic',
+    description: 'Ice baths, physio tables, and load monitoring sensors to prevent training injuries.',
+    cost: 11000,
+    weeklyUpkeep: 300,
+    perkSummary: '-25% Drill Failure Risk & +5 Weekly Stamina Recovery',
+  },
+  {
+    id: 'training_pitch_2',
+    name: 'High-Speed Turf Showcourt',
+    description: 'Secondary pressurized court allowing simultaneous full-intensity 5v5 scrimmages.',
+    cost: 14000,
+    weeklyUpkeep: 350,
+    perkSummary: '+10% All Stat Gains on Scrimmage & Shooting drills',
+  },
+  {
+    id: 'youth_academy',
+    name: 'Street Futsal Scouting Network',
+    description: 'Local tournament scouts and grassroots clinics that grow club reputation and supporter base.',
+    cost: 16500,
+    weeklyUpkeep: 350,
+    perkSummary: '+25% Supporter growth & +15% Gate Revenue per match',
+  },
+];
+
+export const DEFAULT_SCHEDULE_TASKS: ScheduleTask[] = [
+  {
+    id: 'task_pace_sprints',
+    name: 'Explosive Sprint & Agility Drills',
+    description: 'High-intensity shuttle runs and acceleration gates (Fast for FWD/MID, slow for GK).',
+    targetAttribute: 'pace',
+    staminaCost: 16,
+    stressCost: 10,
+    statGainMultiplier: 1.25,
+    baseFailureRate: 0.08,
+    statPenaltyOnFail: 1,
+    riskTier: 'MEDIUM',
+    requiredFacility: 'training_pitch_1',
+    monetaryCost: 280,
+  },
+  {
+    id: 'task_shooting_finishing',
+    name: 'Clinical Finishing & Shooting Practice',
+    description: '1v1 finishing and strike power (1.4x for FWD, 0.1x for DEF, 0.05x for GK).',
+    targetAttribute: 'shooting',
+    staminaCost: 15,
+    stressCost: 9,
+    statGainMultiplier: 1.3,
+    baseFailureRate: 0.07,
+    statPenaltyOnFail: 1,
+    riskTier: 'MEDIUM',
+    requiredFacility: 'training_pitch_1',
+    monetaryCost: 320,
+  },
+  {
+    id: 'task_passing_rondos',
+    name: 'Tactical Rondo & Vision Clinic',
+    description: 'One-touch futsal triangles and progressive through-ball drills.',
+    targetAttribute: 'passing',
+    staminaCost: 12,
+    stressCost: 8,
+    statGainMultiplier: 1.25,
+    baseFailureRate: 0.04,
+    statPenaltyOnFail: 1,
+    riskTier: 'LOW',
+    requiredFacility: 'tactical_analysis_suite',
+    monetaryCost: 280,
+  },
+  {
+    id: 'task_defending_shape',
+    name: 'Defensive Block & Pressing Traps',
+    description: 'Zonal marking discipline and 1v1 tackling (1.4x for DEF, 0.15x for FWD).',
+    targetAttribute: 'defending',
+    staminaCost: 17,
+    stressCost: 10,
+    statGainMultiplier: 1.3,
+    baseFailureRate: 0.08,
+    statPenaltyOnFail: 1,
+    riskTier: 'MEDIUM',
+    requiredFacility: 'training_pitch_1',
+    monetaryCost: 300,
+  },
+  {
+    id: 'task_physical_gym',
+    name: 'Strength & Core Conditioning',
+    description: 'Resistance training, shielding power, and high-press endurance (1.35x for DEF).',
+    targetAttribute: 'physical',
+    staminaCost: 20,
+    stressCost: 12,
+    statGainMultiplier: 1.35,
+    baseFailureRate: 0.11,
+    statPenaltyOnFail: 2,
+    riskTier: 'HIGH',
+    requiredFacility: 'strength_gym',
+    monetaryCost: 340,
+  },
+  {
+    id: 'task_gk_reflexes',
+    name: 'Goalkeeper Reflex & Shot-Stopping Clinic',
+    description: 'Point-blank reaction saves, 1v1 handling, and angle positioning (1.4x for GK).',
+    targetAttribute: 'reflexes',
+    staminaCost: 15,
+    stressCost: 9,
+    statGainMultiplier: 1.35,
+    baseFailureRate: 0.07,
+    statPenaltyOnFail: 1,
+    riskTier: 'MEDIUM',
+    requiredFacility: 'training_pitch_1',
+    monetaryCost: 300,
+  },
+  {
+    id: 'task_gk_command',
+    name: 'Goalkeeper Handling, Positioning & Aerials',
+    description: 'Full goalkeeper box command, clean handling, and high-ball claiming (GK specialist).',
+    targetAttribute: 'gk_all',
+    staminaCost: 17,
+    stressCost: 10,
+    statGainMultiplier: 1.15,
+    baseFailureRate: 0.09,
+    statPenaltyOnFail: 1,
+    riskTier: 'MEDIUM',
+    requiredFacility: 'training_pitch_1',
+    monetaryCost: 320,
+  },
+  {
+    id: 'task_all_scrimmage',
+    name: 'Full 5v5 Tactical Scrimmage',
+    description: 'High-tempo 5-a-side match simulation training role-appropriate attributes.',
+    targetAttribute: 'all',
+    staminaCost: 22,
+    stressCost: 14,
+    statGainMultiplier: 0.9,
+    baseFailureRate: 0.13,
+    statPenaltyOnFail: 2,
+    riskTier: 'HIGH',
+    monetaryCost: 450,
+  },
+  {
+    id: 'task_rest_recovery',
+    name: 'Cryotherapy & Active Recovery',
+    description: 'Scheduled rest, sports massage, and hydrotherapy to clear fatigue.',
+    targetAttribute: 'recovery',
+    staminaCost: -55,
+    stressCost: -40,
+    statGainMultiplier: 0,
+    baseFailureRate: 0.0,
+    statPenaltyOnFail: 1,
+    riskTier: 'LOW',
+    requiredFacility: 'medical_rehab_center',
+    monetaryCost: 120,
+  },
+];
+
+/**
+ * 12-Week Season Campaign Calendar:
+ * - Weeks 1–4: Grassroots Division (Learn tactics & build early stats)
+ * - Weeks 5–8: Regional Contenders (Mid-season survival check at Week 6: 9+ League Pts)
+ * - Weeks 9–11: National Championship Stage (Semi-Final qualification at Week 11: 18+ League Pts)
+ * - Week 12: The Grand Masters Finale vs Real Crown (Win to become National Champions!)
+ */
+export const SEASON_FIXTURE_CALENDAR: WeeklyFixtureDefinition[] = [
+  {
+    week: 1,
+    id: 'wk_01_harbor',
+    name: 'Grassroots Cup Opener vs Harbor Five',
+    opponentName: 'Harbor Five',
+    stage: 'Grassroots Division',
+    opponentRating: 27,
+    favoredTactic: 'Attacking',
+    recommendedCounter: 'Counter',
+    strongZone: 'Aggressive Wing Pressing',
+    weakZone: 'Space Behind Fullbacks',
+    scoutingClue: 'Harbor Five throws 4 players forward—leave space behind for quick breaks.',
+    description:
+      'Harbor Five presses high with relentless forward runs—test your backline discipline or hit them on the break.',
+  },
+  {
+    week: 2,
+    id: 'wk_02_dockside',
+    name: 'Street Turf Clash vs Dockside 5',
+    opponentName: 'Dockside 5',
+    stage: 'Grassroots Division',
+    opponentRating: 29,
+    favoredTactic: 'Balanced',
+    recommendedCounter: 'Attacking',
+    strongZone: 'Midfield Structure',
+    weakZone: 'Slow Lateral Shifts',
+    scoutingClue: 'Dockside sits in a tidy 1-2-2 shell—only sustained waves of attack will crack them.',
+    description:
+      'Dockside 5 keeps a disciplined shape and waits for mistakes in midfield.',
+  },
+  {
+    week: 3,
+    id: 'wk_03_southside',
+    name: 'Urban Futsal Derby vs Southside Athletic',
+    opponentName: 'Southside Athletic',
+    stage: 'Grassroots Division',
+    opponentRating: 31,
+    favoredTactic: 'Counter',
+    recommendedCounter: 'Balanced',
+    strongZone: 'Fast Breakaways',
+    weakZone: 'Low Possession Stamina',
+    scoutingClue: 'Southside lures opponents forward and springs rapid 2v1 breaks.',
+    description:
+      'Southside waits deep and punishes careless turnovers with blistering transitions.',
+  },
+  {
+    week: 4,
+    id: 'wk_04_ironworks',
+    name: 'Grassroots Division Finale vs Ironworks 5',
+    opponentName: 'Ironworks 5',
+    stage: 'Grassroots Division',
+    opponentRating: 33,
+    favoredTactic: 'Attacking',
+    recommendedCounter: 'Counter',
+    strongZone: 'Heavy Shooting Volume',
+    weakZone: 'Exposed Keeper 1v1s',
+    scoutingClue: 'Ironworks commits both defenders up court—protect your box and spring fast counters.',
+    description:
+      'Final Grassroots tie before Regional promotion! Expect high-scoring chaos.',
+    gateNote: 'Grassroots Stage Finale',
+  },
+  {
+    week: 5,
+    id: 'wk_05_metro',
+    name: 'Regional League Opener vs Metro Five',
+    opponentName: 'Metro Five',
+    stage: 'Regional Contenders',
+    opponentRating: 35,
+    favoredTactic: 'Balanced',
+    recommendedCounter: 'Attacking',
+    strongZone: 'One-Touch Passing',
+    weakZone: 'Passive Box Marking',
+    scoutingClue: 'Metro Five prioritizes neat passing triangles—overloading their box forces errors.',
+    description:
+      'First Regional Contenders clash against a well-drilled possession side.',
+  },
+  {
+    week: 6,
+    id: 'wk_06_apex',
+    name: 'Mid-Season Cutoff Tie vs Apex United',
+    opponentName: 'Apex United',
+    stage: 'Regional Contenders',
+    opponentRating: 37,
+    favoredTactic: 'Counter',
+    recommendedCounter: 'Balanced',
+    strongZone: 'Lethal Transition Pace',
+    weakZone: 'Struggles When Denied Space',
+    scoutingClue: 'Apex United thrives when you overcommit—patient midfield control starves their forwards.',
+    description:
+      'Board Checkpoint Week! Reach at least 9 League Points by full-time to keep your coaching job!',
+    gateNote: 'Board Target: 9+ League Pts Required After Week 6',
+  },
+  {
+    week: 7,
+    id: 'wk_07_crimson',
+    name: 'Regional Showdown vs Crimson Star',
+    opponentName: 'Crimson Star',
+    stage: 'Regional Contenders',
+    opponentRating: 39,
+    favoredTactic: 'Attacking',
+    recommendedCounter: 'Counter',
+    strongZone: 'Relentless High Press',
+    weakZone: 'High Defensive Line',
+    scoutingClue: 'Crimson Star blitzes from minute one—absorb pressure and punish the space behind.',
+    description:
+      'Crimson Star’s forwards blitz forward relentlessly in search of early goals.',
+  },
+  {
+    week: 8,
+    id: 'wk_08_velocity',
+    name: 'Regional Trophy Decider vs Velocity 5',
+    opponentName: 'Velocity 5',
+    stage: 'Regional Contenders',
+    opponentRating: 41,
+    favoredTactic: 'Balanced',
+    recommendedCounter: 'Attacking',
+    strongZone: 'Compact 5-Man Unit',
+    weakZone: 'Fatigues Under High Tempo',
+    scoutingClue: 'Velocity 5 relies on steady control—high-risk attacking pressure breaks their rhythm.',
+    description:
+      'Regional Division title decider before the National Masters!',
+    gateNote: 'Regional Contenders Finale',
+  },
+  {
+    week: 9,
+    id: 'wk_09_solaria',
+    name: 'National Masters Group Tie vs Solaria Futsal',
+    opponentName: 'Solaria Futsal',
+    stage: 'National Championship',
+    opponentRating: 43,
+    favoredTactic: 'Counter',
+    recommendedCounter: 'Balanced',
+    strongZone: 'Tight Low Block & Traps',
+    weakZone: 'Short on Creative Spark',
+    scoutingClue: 'Solaria sets pressing traps near halfway—keep patient shape and don’t force passes.',
+    description:
+      'Welcome to the National Championship stage against tactical specialists Solaria.',
+  },
+  {
+    week: 10,
+    id: 'wk_10_olympian',
+    name: 'National Quarter-Final vs Olympian Five',
+    opponentName: 'Olympian Five',
+    stage: 'National Championship',
+    opponentRating: 44,
+    favoredTactic: 'Attacking',
+    recommendedCounter: 'Counter',
+    strongZone: 'Elite Finishing Firepower',
+    weakZone: 'Leaves Backdoor Open',
+    scoutingClue: 'Olympian Five throws everyone forward—clinical counter-punching is their kryptonite.',
+    description:
+      'High-intensity Quarter-Final against one of the tournament’s highest-scoring squads.',
+  },
+  {
+    week: 11,
+    id: 'wk_11_vanguards',
+    name: 'National Masters Semi-Final vs Royal Vanguards',
+    opponentName: 'Royal Vanguards',
+    stage: 'National Championship',
+    opponentRating: 46,
+    favoredTactic: 'Balanced',
+    recommendedCounter: 'Attacking',
+    strongZone: 'Ironclad Midfield Discipline',
+    weakZone: 'Vulnerable to Bold Overloads',
+    scoutingClue: 'Royal Vanguards rarely make mistakes unless forced into uncomfortable high-tempo duels.',
+    description:
+      'Win this Semi-Final (or hold 18+ League Points) to punch your ticket to the Week 12 Grand Masters Finale!',
+    gateNote: 'Qualification Gate: 18+ League Pts or Semi-Final Win Required',
+  },
+  {
+    week: 12,
+    id: 'wk_12_real_crown',
+    name: '🏆 GRAND MASTERS FINALE vs Real Crown',
+    opponentName: 'Real Crown',
+    stage: 'Grand Finale',
+    opponentRating: 50,
+    favoredTactic: 'Counter',
+    recommendedCounter: 'Balanced',
+    strongZone: 'Championship-Caliber Transitions',
+    weakZone: 'Must Chase If Denied Breakaways',
+    scoutingClue: 'Real Crown waits like a cobra for any reckless turnover—control the tempo to win the crown.',
+    description:
+      'The Championship Match! Defeat reigning champions Real Crown in the Week 12 Finale to win the campaign!',
+    gateNote: '🏆 Win to Be Crowned National 5-a-Side Champions!',
+  },
+];
+
+export function getScheduledFixtureForWeek(
+  week: number
+): WeeklyFixtureDefinition {
+  const clampedWeek = Math.max(
+    1,
+    Math.min(SEASON_FIXTURE_CALENDAR.length, week)
+  );
+  return (
+    SEASON_FIXTURE_CALENDAR.find((f) => f.week === clampedWeek) ??
+    SEASON_FIXTURE_CALENDAR[SEASON_FIXTURE_CALENDAR.length - 1]!
+  );
+}
+
+/**
+ * Initial Captain Career Milestones Pool
+ */
+export const INITIAL_CAPTAIN_MILESTONES: CaptainMilestone[] = [
+  {
+    id: 'milestone_win_matches',
+    title: 'Grassroots Winning Streak',
+    description: 'Lead the 5-a-side squad to 3 match victories by Week 5.',
+    deadlineWeek: 5,
+    conditionType: 'WIN_MATCHES',
+    targetValue: 3,
+    currentValue: 1,
+    isCompleted: false,
+    isFailed: false,
+    rewardPerk: {
+      type: 'CONFIDENCE',
+      amount: 12,
+    },
+  },
+  {
+    id: 'milestone_goal_contributions',
+    title: 'Spearhead the Attack',
+    description: 'Contribute to 10 total squad goals with the Captain on the court by Week 7.',
+    deadlineWeek: 7,
+    conditionType: 'GOAL_CONTRIBUTIONS',
+    targetValue: 10,
+    currentValue: 2,
+    isCompleted: false,
+    isFailed: false,
+    rewardPerk: {
+      type: 'PASSION',
+      amount: 12,
+    },
+  },
+  {
+    id: 'milestone_captain_rating',
+    title: 'Talismanic Standard',
+    description: 'Raise the Captain’s positional rating to 44 OVR or higher by Week 8.',
+    deadlineWeek: 8,
+    conditionType: 'CAPTAIN_RATING',
+    targetValue: 44,
+    currentValue: 29,
+    isCompleted: false,
+    isFailed: false,
+    rewardPerk: {
+      type: 'CHARISMA',
+      amount: 14,
+    },
+  },
+  {
+    id: 'milestone_top_rank',
+    title: 'National Finals Qualification',
+    description: 'Reach 18+ League Points by Week 11 to qualify for the Grand Masters Finale.',
+    deadlineWeek: 11,
+    conditionType: 'TOP_RANK',
+    targetValue: 18,
+    currentValue: 3,
+    isCompleted: false,
+    isFailed: false,
+    rewardPerk: {
+      type: 'CONFIDENCE',
+      amount: 16,
+    },
+  },
+];
+
+/**
+ * Uma Musume-style Captain Events Pool (with meaningful tactical trade-offs)
+ */
+export const CAPTAIN_EVENTS_POOL: CaptainEvent[] = [
+  {
+    id: 'cap_event_late_practice',
+    title: 'Floodlights After Dusk',
+    eventText:
+      'Long after evening training ended, the Captain noticed two teammates still struggling to sync their 1-2 give-and-go timing on the 5-a-side pitch.',
+    choices: [
+      {
+        id: 'choice_demo',
+        label: 'Run an intense 45-minute precision passing clinic (+10 Confidence, +5 Stress)',
+        outcomeText:
+          'The extra tactical repetition sharpened the squad’s belief, though the late finish added mental fatigue. (+10 Confidence, +5 Team Stress)',
+        rewards: { confidence: 10, teamStressDelta: 5 },
+      },
+      {
+        id: 'choice_sprint',
+        label: 'Challenge them to an all-out competitive shuttle relay (+11 Passion, -6 Stamina)',
+        outcomeText:
+          'The Captain’s competitive fire electrified the session, burning extra energy in exchange for grit! (+11 Passion, -6 Team Stamina, +3 Morale)',
+        rewards: { passion: 11, teamStaminaDelta: -6, teamMoraleDelta: 3 },
+      },
+      {
+        id: 'choice_tea',
+        label: 'Call a break, bring warm drinks, and talk through their nerves (+8 Charisma, -8 Stress)',
+        outcomeText:
+          'The tension melted away in the locker room as the Captain listened to everyone’s concerns. (+8 Charisma, -8 Team Stress)',
+        rewards: { charisma: 8, teamStressDelta: -8 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_press_huddle',
+    title: 'Pre-Match Tunnel Nerves',
+    eventText:
+      'Media cameras flashed outside the dressing room ahead of a high-stakes 5-a-side showcase, leaving the younger defenders visibly tense.',
+    choices: [
+      {
+        id: 'choice_bold_claim',
+        label: 'Step in front of the mic and boldly guarantee victory (+12 Confidence, +6 Stress)',
+        outcomeText:
+          'The Captain’s bold guarantee raised the stakes and swagger across the dressing room! (+12 Confidence, +6 Team Stress)',
+        rewards: { confidence: 12, teamStressDelta: 6 },
+      },
+      {
+        id: 'choice_huddle_roar',
+        label: 'Deliver a fierce locker-room battle cry (+10 Passion, +4 Morale, -4 Stamina)',
+        outcomeText:
+          'Adrenaline surged through the squad—everyone burned nervous energy warming up at full tilt! (+10 Passion, +4 Morale, -4 Team Stamina)',
+        rewards: { passion: 10, teamMoraleDelta: 4, teamStaminaDelta: -4 },
+      },
+      {
+        id: 'choice_crack_joke',
+        label: 'Crack a lighthearted inside joke to shield the squad (+9 Charisma, -6 Stress)',
+        outcomeText:
+          'Laughter echoed down the tunnel, keeping the dressing room relaxed. (+9 Charisma, -6 Team Stress)',
+        rewards: { charisma: 9, teamStressDelta: -6 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_tactical_debate',
+    title: 'Whiteboard Disagreement',
+    eventText:
+      'During video analysis of the 1-2-2 formation, the forwards and defenders disagreed on how high to press on opposition kick-ins.',
+    choices: [
+      {
+        id: 'choice_blueprint',
+        label: 'Enforce a strict, demanding pressing blueprint (+10 Confidence, -3 Morale)',
+        outcomeText:
+          'The uncompromising tactical standard raised execution discipline despite some bruised egos. (+10 Confidence, -3 Team Morale)',
+        rewards: { confidence: 10, teamMoraleDelta: -3 },
+      },
+      {
+        id: 'choice_vow_cover',
+        label: 'Promise to cover the extra sprinting yards personally (+10 Passion, -5 Stamina)',
+        outcomeText:
+          'The Captain’s selfless work ethic inspired the whole 5-a-side unit! (+10 Passion, -5 Team Stamina)',
+        rewards: { passion: 10, teamStaminaDelta: -5 },
+      },
+      {
+        id: 'choice_team_dinner',
+        label: 'Host a team dinner to unite both halves of the pitch (+8 Charisma, +6 Morale)',
+        outcomeText:
+          'Bonding over dinner strengthened the squad’s chemistry and eased mental strain. (+8 Charisma, +6 Team Morale)',
+        rewards: { charisma: 8, teamMoraleDelta: 6 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_rainy_court',
+    title: 'Downpour on the Rooftop Court',
+    eventText:
+      'A sudden torrential rainstorm soaked the outdoor training court halfway through the week’s conditioning block.',
+    choices: [
+      {
+        id: 'choice_precision_wet',
+        label: 'Drill high-speed one-touch ball control on the slick surface (+9 Confidence, +4 Stress)',
+        outcomeText:
+          'Mastering the wet turf sharpened technical authority under tough conditions! (+9 Confidence, +4 Team Stress)',
+        rewards: { confidence: 9, teamStressDelta: 4 },
+      },
+      {
+        id: 'choice_embrace_rain',
+        label: 'Power through the storm with full-pitch pressing reps (+12 Passion, -8 Stamina)',
+        outcomeText:
+          'Pure grit turned a miserable afternoon into a grueling badge of honor! (+12 Passion, -8 Team Stamina)',
+        rewards: { passion: 12, teamStaminaDelta: -8 },
+      },
+      {
+        id: 'choice_sauna_video',
+        label: 'Move inside early for recovery stretching and film study (+8 Charisma, -9 Stress, +5 Stamina)',
+        outcomeText:
+          'The squad appreciated the smart call, avoiding colds and recovering fresh legs. (+8 Charisma, -9 Team Stress, +5 Team Stamina)',
+        rewards: { charisma: 8, teamStressDelta: -9, teamStaminaDelta: 5 },
+      },
+    ],
+  },
+];
+
+/**
+ * 5-a-side Squad (1 GK, 2 DEF, 2 FWD) in a 1-2-2 formation:
+ * - Campaign starts at grassroots rookie level with low initial stats (18-32 range)
+ *   and low starting Captaincy aura stats (12-18 range) so progression feels earned.
+ * - Outfield players use `OutfieldAttributes` (`pace`, `shooting`, `passing`, `defending`, `physical`).
+ * - Goalkeeper (`position === 'GK'`) uses `GoalkeeperAttributes` (`reflexes`, `handling`, `positioning`, `aerial`).
+ */
+export const INITIAL_PLAYERS: Player[] = [
+  {
+    id: 'player_01',
+    name: 'Lucas Vance',
+    shirtNumber: 9,
+    age: 18,
+    position: 'FWD',
+    assignedPosition: 'FWD',
+    isCaptain: true,
+    captainStats: {
+      confidence: 18,
+      passion: 15,
+      charisma: 16,
+    },
+    attributes: {
+      pace: 31,
+      shooting: 32,
+      passing: 24,
+      defending: 14,
+      physical: 25,
+    },
+    status: {
+      stamina: 90,
+      stress: 12,
+      morale: 75,
+    },
+    form: 65,
+    fanbase: 450,
+    currentMood: 'motivated',
+    avatarKey: 'avatar_vance_fwd',
+    assignedTaskId: 'task_shooting_finishing',
+    weeklySchedule: {
+      Mon: 'task_shooting_finishing',
+      Tue: 'task_pace_sprints',
+      Wed: 'task_rest_recovery',
+      Thu: 'task_passing_rondos',
+      Fri: 'task_shooting_finishing',
+      Sat: 'task_pace_sprints',
+      Sun: 'task_rest_recovery',
+    },
+  },
+  {
+    id: 'player_02',
+    name: 'Mateo Silva',
+    shirtNumber: 10,
+    age: 19,
+    position: 'FWD',
+    assignedPosition: 'FWD',
+    isCaptain: false,
+    captainStats: {
+      confidence: 14,
+      passion: 12,
+      charisma: 16,
+    },
+    attributes: {
+      pace: 28,
+      shooting: 27,
+      passing: 33,
+      defending: 18,
+      physical: 22,
+    },
+    status: {
+      stamina: 88,
+      stress: 14,
+      morale: 72,
+    },
+    form: 64,
+    fanbase: 520,
+    currentMood: 'composed',
+    avatarKey: 'avatar_silva_fwd',
+    assignedTaskId: 'task_passing_rondos',
+    weeklySchedule: {
+      Mon: 'task_passing_rondos',
+      Tue: 'task_shooting_finishing',
+      Wed: 'task_rest_recovery',
+      Thu: 'task_pace_sprints',
+      Fri: 'task_passing_rondos',
+      Sat: 'task_shooting_finishing',
+      Sun: 'task_rest_recovery',
+    },
+  },
+  {
+    id: 'player_03',
+    name: 'Kenji Takahashi',
+    shirtNumber: 4,
+    age: 19,
+    position: 'DEF',
+    assignedPosition: 'DEF',
+    isCaptain: false,
+    captainStats: {
+      confidence: 15,
+      passion: 18,
+      charisma: 12,
+    },
+    attributes: {
+      pace: 25,
+      shooting: 15,
+      passing: 24,
+      defending: 33,
+      physical: 31,
+    },
+    status: {
+      stamina: 92,
+      stress: 10,
+      morale: 76,
+    },
+    form: 66,
+    fanbase: 380,
+    currentMood: 'motivated',
+    avatarKey: 'avatar_takahashi_def',
+    assignedTaskId: 'task_defending_shape',
+    weeklySchedule: {
+      Mon: 'task_defending_shape',
+      Tue: 'task_physical_gym',
+      Wed: 'task_rest_recovery',
+      Thu: 'task_passing_rondos',
+      Fri: 'task_defending_shape',
+      Sat: 'task_physical_gym',
+      Sun: 'task_rest_recovery',
+    },
+  },
+  {
+    id: 'player_04',
+    name: 'Sora Aoyama',
+    shirtNumber: 5,
+    age: 18,
+    position: 'DEF',
+    assignedPosition: 'DEF',
+    isCaptain: false,
+    captainStats: {
+      confidence: 12,
+      passion: 15,
+      charisma: 15,
+    },
+    attributes: {
+      pace: 29,
+      shooting: 16,
+      passing: 26,
+      defending: 30,
+      physical: 27,
+    },
+    status: {
+      stamina: 89,
+      stress: 13,
+      morale: 74,
+    },
+    form: 63,
+    fanbase: 340,
+    currentMood: 'motivated',
+    avatarKey: 'avatar_aoyama_def',
+    assignedTaskId: 'task_defending_shape',
+    weeklySchedule: {
+      Mon: 'task_defending_shape',
+      Tue: 'task_pace_sprints',
+      Wed: 'task_rest_recovery',
+      Thu: 'task_passing_rondos',
+      Fri: 'task_defending_shape',
+      Sat: 'task_physical_gym',
+      Sun: 'task_rest_recovery',
+    },
+  },
+  {
+    id: 'player_05',
+    name: 'David Lindqvist',
+    shirtNumber: 1,
+    age: 20,
+    position: 'GK',
+    assignedPosition: 'GK',
+    isCaptain: false,
+    captainStats: {
+      confidence: 16,
+      passion: 14,
+      charisma: 14,
+    },
+    attributes: {
+      reflexes: 33,
+      handling: 30,
+      positioning: 31,
+      aerial: 28,
+    },
+    status: {
+      stamina: 95,
+      stress: 10,
+      morale: 75,
+    },
+    form: 65,
+    fanbase: 310,
+    currentMood: 'motivated',
+    avatarKey: 'avatar_lindqvist_gk',
+    assignedTaskId: 'task_gk_reflexes',
+    weeklySchedule: {
+      Mon: 'task_gk_reflexes',
+      Tue: 'task_gk_command',
+      Wed: 'task_rest_recovery',
+      Thu: 'task_gk_command',
+      Fri: 'task_gk_reflexes',
+      Sat: 'task_gk_command',
+      Sun: 'task_rest_recovery',
+    },
+  },
+];
+
+export const INITIAL_IDOLS = INITIAL_PLAYERS;
+
+export const INITIAL_TEAM: Team = {
+  name: 'Northstar Futsal 5',
+  funds: 18000,
+  reputation: 15,
+  formation: '1-2-2',
+  tacticalStyle: 'Balanced',
+  unlockedFacilities: ['training_pitch_1'],
+  players: INITIAL_PLAYERS,
+  idols: INITIAL_PLAYERS,
+};
+
+export const INITIAL_AGENCY = INITIAL_TEAM;
+
+export const INITIAL_MATCH_HISTORY: MatchResult[] = [
+  {
+    id: 'match_001',
+    eventName: 'Grassroots Street Kickoff vs Neighborhood 5',
+    week: 1,
+    participatingPlayerIds: [
+      'player_01',
+      'player_02',
+      'player_03',
+      'player_04',
+      'player_05',
+    ],
+    opponentRating: 26,
+    tactic: 'Balanced',
+    formation: '1-2-2',
+    teamRating: 30,
+    goalsFor: 2,
+    goalsAgainst: 1,
+    pointsEarned: 3,
+    score: 74,
+    crowdReaction: 'warm',
+    statChecks: [
+      {
+        attribute: 'passing',
+        requiredValue: 26,
+        actualValue: 29,
+        passed: true,
+        label: '5-a-Side Quick Passing & Rotation',
+      },
+      {
+        attribute: 'shooting',
+        requiredValue: 26,
+        actualValue: 30,
+        passed: true,
+        label: 'Close-Range Clinical Finishing',
+      },
+      {
+        attribute: 'defending',
+        requiredValue: 26,
+        actualValue: 31,
+        passed: true,
+        label: '2-Defender Box Protection & Keeper Reflexes',
+      },
+      {
+        attribute: 'pace',
+        requiredValue: 26,
+        actualValue: 28,
+        passed: true,
+        label: 'End-to-End Transition Sprints',
+      },
+    ],
+    logMessages: [
+      "01' - Kickoff! Rookie squad Northstar Futsal 5 lines up in a 1-2-2 (Team Rating 30) against Neighborhood 5 (Opponent Rating 26).",
+      "14' - Midfield battle won! Mateo Silva connects a neat one-two with Sora Aoyama.",
+      "29' - GOAL! Captain Lucas Vance slots a low finish inside the near post! (1-0)",
+      "56' - Neighborhood 5 equalize after a scramble in the box. (1-1)",
+      "71' - Kenji Takahashi tracks back and blocks a dangerous counter-attack!",
+      "86' - GOAL! Mateo Silva pounces on a loose ball to net the late winner! (2-1)",
+      "90' - Full-Time: Northstar Futsal 5 2 - 1 Neighborhood 5 (+3 pts, Team Rating 30 vs 26).",
+    ],
+    rewards: {
+      fundsEarned: 3200,
+      fansGained: 280,
+      reputationDelta: 2,
+      pointsEarned: 3,
+    },
+  },
+];
+
+export const INITIAL_PERFORMANCE_HISTORY = INITIAL_MATCH_HISTORY;
+
+/**
+ * Helper to derive a Player's mood from their current status metrics (0-100).
+ */
+export function derivePlayerMood(status: PlayerStatus): PlayerMood {
+  if (status.stress >= 85 || status.stamina <= 10) {
+    return 'burnout';
+  }
+  if (status.stress >= 65 || status.stamina <= 25) {
+    return 'stressed';
+  }
+  if (status.morale >= 85 && status.stress < 30 && status.stamina >= 60) {
+    return 'ecstatic';
+  }
+  if (status.morale >= 65 && status.stress < 50) {
+    return 'motivated';
+  }
+  return 'composed';
+}
+
+export const deriveIdolMood = derivePlayerMood;

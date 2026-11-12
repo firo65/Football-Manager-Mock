@@ -16,17 +16,20 @@ import {
   Zap,
   AlertTriangle,
   CheckCircle2,
+  X,
   XCircle,
 } from 'lucide-react';
 import { useGameState } from './GameStateContext';
 import {
   calculateCampFailureChance,
-  calculateExpectedOpponentRating,
   calculatePlayerPositionalRating,
+  computeSquadZonePreview,
   estimateMatchWinProbability,
   evaluateCampaignRun,
   evaluateTacticalSynergy,
   getCaptainBuffMultipliers,
+  getCaptainRallyBoostMultiplier,
+  getFormationProfile,
   getPlayerConditionSummary,
   getSquadEnergySummary,
   normalizePosition,
@@ -57,47 +60,6 @@ const FORMATIONS: { id: FormationType; label: string }[] = [
 ];
 
 const TACTICS: TacticalStyle[] = ['Balanced', 'Attacking', 'Counter'];
-
-const MATCH_FIXTURES: {
-  id: string;
-  name: string;
-  opponentRating: number;
-  favoredTactic: TacticalStyle;
-  recommendedCounter: TacticalStyle;
-  description: string;
-  recommendedStat: string;
-}[] = [
-  {
-    id: 'fixture_cup',
-    name: '5v5 Street Futsal Cup vs Harbor Five',
-    opponentRating: 25,
-    favoredTactic: 'Attacking',
-    recommendedCounter: 'Counter',
-    description:
-      'Grassroots street futsal tie. Harbor Five plays reckless Attacking futsal—punish their high line with Counter!',
-    recommendedStat: '28+ Team Rating',
-  },
-  {
-    id: 'fixture_league',
-    name: 'Regional Futsal League vs Metro Five',
-    opponentRating: 42,
-    favoredTactic: 'Balanced',
-    recommendedCounter: 'Attacking',
-    description:
-      'Mid-season regional league clash. Metro Five sits in a Balanced block—break them down with Attacking firepower!',
-    recommendedStat: '45+ Team Rating',
-  },
-  {
-    id: 'fixture_champions',
-    name: 'National 5-a-Side Masters vs Real Crown',
-    opponentRating: 62,
-    favoredTactic: 'Counter',
-    recommendedCounter: 'Balanced',
-    description:
-      'High-stakes championship arena tie. Real Crown waits for Counter traps—control possession with Balanced tactics!',
-    recommendedStat: '65+ Team Rating',
-  },
-];
 
 function formatCalendarDate(week: number): string {
   const startDate = new Date(2026, 7, 10);
@@ -196,12 +158,15 @@ export default function App() {
     setCaptain,
     resolveCaptainEvent,
     selectSquadCamp,
+    runWeeklyCamp,
     scoutWeekOpponent,
     startHalftimeMatch,
     finishHalftimeMatch,
     completeWeekTurn,
     runMatch,
     unlockFacility,
+    healPlayerRehab,
+    dismissWeekSummary,
     resetGame,
   } = useGameState();
 
@@ -231,7 +196,9 @@ export default function App() {
     leaguePoints,
     activeCaptainEvent,
     milestones,
+    hasRunCampThisWeek,
     hasPlayedMatchThisWeek,
+    lastWeekSummary,
   } = state;
 
   const displayWeek = Math.min(week, seasonLength);
@@ -366,6 +333,17 @@ export default function App() {
               </button>
             ) : !hasPlayedMatchThisWeek ? (
               <div className="flex items-center gap-2">
+                {!hasRunCampThisWeek && (
+                  <button
+                    type="button"
+                    onClick={runWeeklyCamp}
+                    title="Execute Mon–Fri Squad Camp before Sunday kickoff"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Run Camp
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -389,7 +367,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => completeWeekTurn(selectedLineupIds)}
-                  title="Automatically simulates this week's match AND applies weekday training"
+                  title="Runs weekday training (if not done), simulates this week's official match, and advances week"
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs transition cursor-pointer"
                 >
                   <FastForward className="w-3.5 h-3.5 text-emerald-400" />
@@ -405,7 +383,9 @@ export default function App() {
                 <FastForward className="w-4 h-4" />
                 {displayWeek >= seasonLength
                   ? 'Finish Season & View Rank →'
-                  : `Finalize Wk ${displayWeek} & Train → Wk ${displayWeek + 1}`}
+                  : hasRunCampThisWeek
+                  ? `Advance to Wk ${displayWeek + 1} →`
+                  : `Run Camp & Advance → Wk ${displayWeek + 1}`}
               </button>
             )}
           </div>
@@ -580,8 +560,12 @@ export default function App() {
               >
                 <FastForward className="w-3.5 h-3.5" />
                 {hasPlayedMatchThisWeek
-                  ? `Finalize Wk ${displayWeek} & Train`
-                  : `Sim Match + Train (Wk ${displayWeek})`}
+                  ? hasRunCampThisWeek
+                    ? `Advance to Wk ${displayWeek + 1}`
+                    : `Run Camp & Advance (Wk ${displayWeek})`
+                  : hasRunCampThisWeek
+                  ? `Sim Match → Wk ${displayWeek + 1}`
+                  : `Sim Camp + Match (Wk ${displayWeek})`}
               </button>
             )}
           </div>
@@ -761,6 +745,169 @@ export default function App() {
             </div>
           )}
 
+          {/* STEP 3: END-OF-WEEK VISUAL TURN SUMMARY CARD */}
+          {lastWeekSummary && (
+            <div className="bg-slate-900/95 border border-emerald-500/40 rounded-2xl p-5 space-y-4 shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="text-xs font-mono font-bold uppercase px-2.5 py-1 rounded-full bg-slate-800 text-slate-200 border border-slate-700">
+                    Week {lastWeekSummary.week} Report
+                  </span>
+                  <span
+                    className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${
+                      lastWeekSummary.campOutcome === 'breakthrough'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : lastWeekSummary.campOutcome === 'slump'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        : lastWeekSummary.campOutcome === 'recovery'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                        : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                    }`}
+                  >
+                    {lastWeekSummary.campOutcome === 'breakthrough'
+                      ? '✨ Breakthrough'
+                      : lastWeekSummary.campOutcome === 'slump'
+                      ? '⚠️ Overtraining Slump'
+                      : lastWeekSummary.campOutcome === 'recovery'
+                      ? '🛌 Recovery Week'
+                      : '✓ Camp Completed'}
+                  </span>
+                  <span className="text-sm font-bold text-white">
+                    {lastWeekSummary.campTitle}
+                  </span>
+                  {lastWeekSummary.totalOutflow > 0 && (
+                    <span className="text-xs font-mono text-amber-300">
+                      Outflow: -¥{lastWeekSummary.totalOutflow.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={dismissWeekSummary}
+                  aria-label="Dismiss weekly summary"
+                  className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Dismiss
+                </button>
+              </div>
+
+              {lastWeekSummary.playerReports.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                  {lastWeekSummary.playerReports.map((rep) => (
+                    <div
+                      key={rep.playerId}
+                      className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-bold text-white truncate">
+                          {rep.playerName}
+                        </span>
+                        <span
+                          className={`text-[10px] font-mono font-bold ${
+                            rep.energyDelta >= 0
+                              ? 'text-sky-300'
+                              : 'text-amber-300'
+                          }`}
+                        >
+                          {rep.energyDelta >= 0 ? '+' : ''}
+                          {rep.energyDelta}% NRG
+                        </span>
+                      </div>
+
+                      {rep.statGains.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {rep.statGains.map((g, idx) => (
+                            <span
+                              key={idx}
+                              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                                g.startsWith('-')
+                                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                  : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                              }`}
+                            >
+                              {g}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 block">
+                          No stat shift
+                        </span>
+                      )}
+
+                      {rep.newTraits.map((tr) => (
+                        <div
+                          key={tr.id}
+                          className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5"
+                        >
+                          {tr.icon} Unlocked: {tr.name}
+                        </div>
+                      ))}
+
+                      {rep.injuredReason && (
+                        <div className="text-[10px] font-bold text-rose-300 bg-rose-500/15 border border-rose-500/30 rounded px-1.5 py-0.5">
+                          🤕 {rep.injuredReason}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {lastWeekSummary.matchSummary && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/90 border border-indigo-500/40">
+                  <div className="text-xs">
+                    <span className="font-mono uppercase text-indigo-300 font-bold mr-2">
+                      Sunday Result:
+                    </span>
+                    <span className="font-bold text-white">
+                      {lastWeekSummary.matchSummary.eventName}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs font-mono font-bold">
+                    <span className="px-2.5 py-1 rounded bg-slate-800 text-white">
+                      {lastWeekSummary.matchSummary.goalsFor} -{' '}
+                      {lastWeekSummary.matchSummary.goalsAgainst}
+                      {lastWeekSummary.matchSummary.penaltyText
+                        ? ` (${lastWeekSummary.matchSummary.penaltyText})`
+                        : ''}
+                    </span>
+                    <span
+                      className={
+                        lastWeekSummary.matchSummary.pointsEarned === 3
+                          ? 'text-emerald-300'
+                          : lastWeekSummary.matchSummary.pointsEarned === 1
+                          ? 'text-amber-300'
+                          : 'text-rose-300'
+                      }
+                    >
+                      +{lastWeekSummary.matchSummary.pointsEarned} Pts
+                    </span>
+                    <span className="text-amber-300">
+                      +¥
+                      {lastWeekSummary.matchSummary.fundsEarned.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {lastWeekSummary.notes.length > 0 && (
+                <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
+                  {lastWeekSummary.notes.map((n, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800"
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* VIEW 1: MANAGER DESK DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
@@ -800,6 +947,16 @@ export default function App() {
                         ? '🛌 Recovery Week Set'
                         : 'Set Full Recovery Week'}
                     </button>
+                    {!isCampaignOver && !hasRunCampThisWeek && (
+                      <button
+                        type="button"
+                        onClick={runWeeklyCamp}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-500/20 cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        1. Run Mon–Fri Camp ({activeCamp.emoji})
+                      </button>
+                    )}
                     {!isCampaignOver && !hasPlayedMatchThisWeek && (
                       <button
                         type="button"
@@ -819,7 +976,7 @@ export default function App() {
                         <Swords className="w-4 h-4" />
                         {halftimeState
                           ? `Resume Halftime (Wk ${displayWeek})`
-                          : `Kick Off Week ${displayWeek} Match`}
+                          : `2. Kick Off Week ${displayWeek} Match`}
                       </button>
                     )}
                     {!isCampaignOver && hasPlayedMatchThisWeek && (
@@ -831,7 +988,9 @@ export default function App() {
                         <FastForward className="w-4 h-4" />
                         {displayWeek >= seasonLength
                           ? 'Finish Season & View Rank →'
-                          : `Finalize Week ${displayWeek} & Run Camp →`}
+                          : hasRunCampThisWeek
+                          ? `Advance to Week ${displayWeek + 1} →`
+                          : `Run Camp & Advance → Wk ${displayWeek + 1}`}
                       </button>
                     )}
                   </div>
@@ -890,25 +1049,39 @@ export default function App() {
                     estOppOvr,
                     team.formation,
                     team.tacticalStyle,
-                    currentScheduledFixture.favoredTactic
+                    isWeekScouted
+                      ? currentScheduledFixture.favoredTactic
+                      : undefined,
+                    {
+                      opponentZones: isWeekScouted
+                        ? currentScheduledFixture.zoneRatings
+                        : undefined,
+                      unlockedFacilities: team.unlockedFacilities,
+                    }
                   );
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-800/80">
                       <button
                         type="button"
                         onClick={() => setActiveTab('schedule')}
-                        className="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-left transition cursor-pointer"
+                        className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition cursor-pointer ${
+                          hasRunCampThisWeek
+                            ? 'bg-emerald-950/25 border-emerald-500/40'
+                            : 'bg-slate-950/80 hover:bg-slate-900 border-slate-800 hover:border-emerald-500/40'
+                        }`}
                       >
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-mono uppercase font-bold text-emerald-400 block">
                             1. Mon–Fri Squad Camp
                           </span>
                           <span className="text-xs font-bold text-white block">
-                            {activeCamp.emoji} {activeCamp.title} ({activeCampFailPct}% Fail)
+                            {hasRunCampThisWeek
+                              ? `✅ Camp Completed (${activeCamp.title})`
+                              : `${activeCamp.emoji} ${activeCamp.title} (${activeCampFailPct}% Fail)`}
                           </span>
                         </div>
                         <span className="text-xs text-slate-400 font-mono">
-                          Pick Camp →
+                          {hasRunCampThisWeek ? 'Review →' : 'Pick / Run →'}
                         </span>
                       </button>
 
@@ -937,7 +1110,7 @@ export default function App() {
                           </span>
                           <span className="text-xs font-bold text-white block">
                             {hasPlayedMatchThisWeek
-                              ? '✅ Match Played — Ready to Finalize Week'
+                              ? '✅ Match Played — Ready to Advance'
                               : halftimeState
                               ? `⏱️ Halftime (${halftimeState.halftimeGoalsFor}-${halftimeState.halftimeGoalsAgainst}) — Adjust Tactics!`
                               : `${'⭐'.repeat(odds.stars)} ~${odds.winPct}% Odds • ${isWeekScouted ? `Plays ${currentScheduledFixture.favoredTactic}` : 'Unscouted Tactic'}`}
@@ -966,12 +1139,16 @@ export default function App() {
                       >
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-mono uppercase font-bold text-sky-400 block">
-                            3. Finalize Week {displayWeek}
+                            3. Advance Week {displayWeek}
                           </span>
                           <span className="text-xs font-bold text-white block">
                             {hasPlayedMatchThisWeek
-                              ? `Run "${activeCamp.title}" & Advance → Wk ${displayWeek + 1}`
-                              : `Sim Match + Run Camp → Wk ${displayWeek + 1}`}
+                              ? hasRunCampThisWeek
+                                ? `Proceed → Wk ${displayWeek + 1}`
+                                : `Run "${activeCamp.title}" & Advance → Wk ${displayWeek + 1}`
+                              : hasRunCampThisWeek
+                              ? `Sim Match → Wk ${displayWeek + 1}`
+                              : `Sim Camp + Match → Wk ${displayWeek + 1}`}
                           </span>
                         </div>
                         <FastForward className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -1025,6 +1202,25 @@ export default function App() {
                               <Crown className="w-3 h-3 text-amber-400 shrink-0" />
                             )}
                           </h3>
+                          {((player.injuryWeeksRemaining ?? 0) > 0 ||
+                            (player.traits && player.traits.length > 0)) && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(player.injuryWeeksRemaining ?? 0) > 0 && (
+                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                  🤕 Inj {player.injuryWeeksRemaining}w
+                                </span>
+                              )}
+                              {player.traits?.slice(0, 2).map((tr) => (
+                                <span
+                                  key={tr.id}
+                                  title={`${tr.name}: ${tr.summary}`}
+                                  className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                                >
+                                  {tr.icon}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1395,6 +1591,19 @@ export default function App() {
                                 {cond.emoji} {cond.label} {cond.arrow}
                               </span>
                             </div>
+                            {player.traits && player.traits.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {player.traits.map((tr) => (
+                                  <span
+                                    key={tr.id}
+                                    title={tr.summary}
+                                    className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-200 border border-amber-500/40"
+                                  >
+                                    {tr.icon} {tr.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1489,6 +1698,16 @@ export default function App() {
                         </div>
                       )}
 
+                      {(player.injuryWeeksRemaining ?? 0) > 0 && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-rose-950/75 border border-rose-500 text-xs text-rose-200 font-semibold">
+                          <span className="flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            Injured ({player.injuryWeeksRemaining} wk):{' '}
+                            {player.injuryReason ?? 'Muscle strain'} (-38% effectiveness)
+                          </span>
+                        </div>
+                      )}
+
                       {player.isBurnedOut ? (
                         <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-950/70 border border-red-500 text-xs text-red-200 font-semibold">
                           <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
@@ -1505,6 +1724,30 @@ export default function App() {
                             </span>
                           </div>
                         )
+                      )}
+
+                      {((player.injuryWeeksRemaining ?? 0) > 0 ||
+                        player.isBurnedOut ||
+                        cond.energyScore < 65) && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs">
+                          <span className="text-slate-300">
+                            🚑 Physio Rehab: clears injury/burnout &amp; boosts +22 Stamina / -18 Stress
+                          </span>
+                          <button
+                            type="button"
+                            disabled={team.funds < 800}
+                            onClick={() => healPlayerRehab(player.id)}
+                            className={`px-3 py-1.5 rounded-lg font-extrabold transition ${
+                              team.funds >= 800
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                            }`}
+                          >
+                            {team.funds >= 800
+                              ? 'Treat Now (¥800)'
+                              : 'Need ¥800'}
+                          </button>
+                        </div>
                       )}
 
                       {/* Uma Musume-style Captaincy Stats Panel (Always visible for active Captain, progressive disclosure for others) */}
@@ -1690,21 +1933,38 @@ export default function App() {
                     Analyze your next opponent, then choose 1 Squad Camp or a Full Recovery Week. Low Energy spikes Fail Risk and hurts Sunday performance!
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={isCampaignOver}
-                  onClick={() => completeWeekTurn(selectedLineupIds)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm shadow-lg cursor-pointer ${
-                    isCampaignOver
-                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-emerald-500/20'
-                  }`}
-                >
-                  <FastForward className="w-4 h-4" />
-                  {hasPlayedMatchThisWeek
-                    ? `Finalize Wk ${displayWeek} & Run Camp`
-                    : `Sim Wk ${displayWeek} Match & Run Camp`}
-                </button>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    disabled={isCampaignOver || hasRunCampThisWeek}
+                    onClick={runWeeklyCamp}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm shadow-lg ${
+                      isCampaignOver || hasRunCampThisWeek
+                        ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20 cursor-pointer'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {hasRunCampThisWeek
+                      ? `Mon–Fri Camp Done (${activeCamp.emoji})`
+                      : `Run Mon–Fri Camp (${activeCamp.emoji})`}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCampaignOver}
+                    onClick={() => completeWeekTurn(selectedLineupIds)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm shadow-lg cursor-pointer ${
+                      isCampaignOver
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200'
+                    }`}
+                  >
+                    <FastForward className="w-4 h-4 text-emerald-400" />
+                    {hasPlayedMatchThisWeek
+                      ? `Advance to Wk ${displayWeek + 1}`
+                      : `Auto-Sim Week ${displayWeek}`}
+                  </button>
+                </div>
               </div>
 
               {/* Squad Energy Meter + Next Opponent Football Analysis */}
@@ -1752,6 +2012,21 @@ export default function App() {
                       : currentScheduledFixture;
                   const isPreviewingNextWeek =
                     hasPlayedMatchThisWeek && Boolean(nextScheduledFixture);
+                  const isTargetScouted = scoutedWeeks.includes(
+                    targetFixture.week
+                  );
+                  const ourZones = computeSquadZonePreview(
+                    team.players,
+                    team.formation,
+                    team.tacticalStyle,
+                    {
+                      unlockedFacilities: team.unlockedFacilities,
+                      opponentTactic: isTargetScouted
+                        ? targetFixture.favoredTactic
+                        : undefined,
+                    }
+                  );
+                  const oz = targetFixture.zoneRatings;
 
                   return (
                     <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl p-5 space-y-2.5">
@@ -1783,10 +2058,56 @@ export default function App() {
                           </span>
                         </div>
                       </div>
-                      <p className="text-xs text-slate-400">
-                        {targetFixture.scoutingClue ??
-                          targetFixture.description}
-                      </p>
+                      {isTargetScouted ? (
+                        <div className="grid grid-cols-4 gap-1.5 text-[10px] font-mono pt-1">
+                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
+                            <span className="text-slate-400 block">Atk vs Def</span>
+                            <span className="font-bold text-white">
+                              {ourZones.attack} vs {oz.defense}
+                            </span>
+                          </div>
+                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
+                            <span className="text-slate-400 block">Midfield</span>
+                            <span className="font-bold text-white">
+                              {ourZones.midfield} vs {oz.midfield}
+                            </span>
+                          </div>
+                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
+                            <span className="text-slate-400 block">Def vs Atk</span>
+                            <span className="font-bold text-white">
+                              {ourZones.defense} vs {oz.attack}
+                            </span>
+                          </div>
+                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
+                            <span className="text-slate-400 block">Pace</span>
+                            <span className="font-bold text-white">
+                              {ourZones.pace} vs {oz.pace}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                          <p className="text-xs text-slate-400 flex-1 min-w-[200px]">
+                            {targetFixture.scoutingClue ??
+                              targetFixture.description}
+                          </p>
+                          <button
+                            type="button"
+                            disabled={team.funds < 400}
+                            onClick={() =>
+                              scoutWeekOpponent(targetFixture.week)
+                            }
+                            className="shrink-0 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-[11px] border border-indigo-500/30 cursor-pointer disabled:opacity-50"
+                          >
+                            🔍 Scout Wk {targetFixture.week} (¥400)
+                          </button>
+                        </div>
+                      )}
+                      {isTargetScouted && (
+                        <p className="text-[11px] font-mono text-amber-300">
+                          ✓ Scouted: Plays {targetFixture.favoredTactic} (Recommended Counter: {targetFixture.recommendedCounter})
+                        </p>
+                      )}
                       {!isPreviewingNextWeek && nextScheduledFixture && (
                         <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-indigo-200">
                           <span>
@@ -2032,55 +2353,85 @@ export default function App() {
                       className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
                     >
                       <Zap className="w-4 h-4" />
-                      Simulate Custom 5v5 (OVR {customOpponentRating})
+                      Simulate 0-Pt Exhibition (OVR {customOpponentRating})
                     </button>
                   </div>
                 </div>
 
                 {/* Preset Fixture Cards with Visual Match Predictor & Rock-Paper-Scissors Scouting */}
                 <div className="lg:col-span-2 space-y-4">
-                  {/* Visual Rock-Paper-Scissors Tactic Legend & Quick Switcher */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] font-mono uppercase font-bold text-emerald-400 block">
-                        Tactical Rock-Paper-Scissors Guide
-                      </span>
-                      <p className="text-xs text-slate-300 font-semibold">
-                        ⚡ Counter beats ⚔️ Attacking • ⚔️ Attacking beats 🛡️ Balanced • 🛡️ Balanced beats ⚡ Counter
-                      </p>
+                  {/* Visual Rock-Paper-Scissors Tactic & Formation Trade-Off Switcher */}
+                  <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-mono uppercase font-bold text-emerald-400 block">
+                          Tactical Rock-Paper-Scissors &amp; Formation Trade-Offs
+                        </span>
+                        <p className="text-xs text-slate-300 font-semibold">
+                          ⚡ Counter beats ⚔️ Attacking • ⚔️ Attacking beats 🛡️ Balanced • 🛡️ Balanced beats ⚡ Counter
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {TACTICS.map((t) => {
+                          const isCurrent = team.tacticalStyle === t;
+                          const icon =
+                            t === 'Attacking'
+                              ? '⚔️'
+                              : t === 'Counter'
+                              ? '⚡'
+                              : '🛡️';
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setTactics({ tacticalStyle: t })}
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {icon} {t}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {TACTICS.map((t) => {
-                        const isCurrent = team.tacticalStyle === t;
-                        const icon =
-                          t === 'Attacking'
-                            ? '⚔️'
-                            : t === 'Counter'
-                            ? '⚡'
-                            : '🛡️';
-                        return (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setTactics({ tacticalStyle: t })}
-                            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                              isCurrent
-                                ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300'
-                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {icon} {t}
-                          </button>
-                        );
-                      })}
+
+                    <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {FORMATIONS.map((f) => {
+                          const isCurrent = team.formation === f.id;
+                          return (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => setTactics({ formation: f.id })}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-indigo-500/20 border-indigo-400 text-indigo-200'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {f.id}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <span className="text-[11px] font-mono text-indigo-300">
+                        {getFormationProfile(team.formation).label}:{' '}
+                        {getFormationProfile(team.formation).summary}
+                      </span>
                     </div>
                   </div>
 
                   {hasPlayedMatchThisWeek && (
                     <div className="p-3.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-200">
                       <span>
-                        ✅ Official Matchweek {displayWeek} completed! Click right to apply your Mon–Fri training drills and advance to Week{' '}
-                        {Math.min(seasonLength, displayWeek + 1)} (or play a 0-pt Exhibition on the left).
+                        ✅ Official Matchweek {displayWeek} completed!{' '}
+                        {hasRunCampThisWeek
+                          ? `Advance to Week ${Math.min(seasonLength, displayWeek + 1)} when ready (or play a 0-pt Exhibition on the left).`
+                          : `Run your Mon–Fri Camp & advance to Week ${Math.min(seasonLength, displayWeek + 1)} (or play a 0-pt Exhibition on the left).`}
                       </span>
                       <button
                         type="button"
@@ -2088,7 +2439,11 @@ export default function App() {
                         onClick={() => completeWeekTurn(selectedLineupIds)}
                         className="shrink-0 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold cursor-pointer shadow-md"
                       >
-                        Finalize Week {displayWeek} &amp; Apply Training →
+                        {displayWeek >= seasonLength
+                          ? 'Finish Season & View Rank →'
+                          : hasRunCampThisWeek
+                          ? `Advance to Week ${displayWeek + 1} →`
+                          : `Run Camp & Advance → Wk ${displayWeek + 1}`}
                       </button>
                     </div>
                   )}
@@ -2111,6 +2466,14 @@ export default function App() {
                           {halftimeState.scaledOpponentRating} OVR)
                         </span>
                       </div>
+
+                      {/* Opponent Halftime Adaptation & Momentum Alert */}
+                      {halftimeState.halftimeMomentum && (
+                        <div className="px-3.5 py-2.5 rounded-xl bg-amber-950/50 border border-amber-500/40 text-xs text-amber-200 font-medium">
+                          ⚡ <strong>2nd-Half Momentum Readout:</strong>{' '}
+                          {halftimeState.halftimeMomentum}
+                        </div>
+                      )}
 
                       {/* 4-Zone Football Analysis */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2190,13 +2553,16 @@ export default function App() {
                           >
                             {FORMATIONS.map((f) => (
                               <option key={f.id} value={f.id}>
-                                {f.id}
+                                {f.id} ({getFormationProfile(f.id).label})
                               </option>
                             ))}
                           </select>
+                          <p className="text-[10px] font-mono text-indigo-300">
+                            {getFormationProfile(halftimeFormation).summary}
+                          </p>
                         </div>
 
-                        <div className="flex flex-col justify-end">
+                        <div className="flex flex-col justify-end space-y-1">
                           <button
                             type="button"
                             onClick={() => setHalftimeRally((prev) => !prev)}
@@ -2206,9 +2572,15 @@ export default function App() {
                                 : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-amber-400/50'
                             }`}
                           >
-                            {halftimeRally
-                              ? '🔥 Captain Rally ON (-8 Energy)'
-                              : '🔥 Trigger Captain Rally (-8 Energy)'}
+                            {(() => {
+                              const rallyPct =
+                                getCaptainRallyBoostMultiplier(
+                                  team.players
+                                ).boostPct;
+                              return halftimeRally
+                                ? `🔥 Rally ON (+${rallyPct}% All Zones, -8 Energy)`
+                                : `🔥 Captain Rally (+${rallyPct}% All Zones, -8 Energy)`;
+                            })()}
                           </button>
                         </div>
                       </div>
@@ -2245,8 +2617,50 @@ export default function App() {
                       estScaledRating,
                       team.formation,
                       team.tacticalStyle,
-                      currentScheduledFixture.favoredTactic
+                      isWeekScouted
+                        ? currentScheduledFixture.favoredTactic
+                        : undefined,
+                      {
+                        opponentZones: isWeekScouted
+                          ? currentScheduledFixture.zoneRatings
+                          : undefined,
+                        unlockedFacilities: team.unlockedFacilities,
+                      }
                     );
+                    const zonePreview = computeSquadZonePreview(
+                      activeLineup,
+                      team.formation,
+                      team.tacticalStyle,
+                      {
+                        unlockedFacilities: team.unlockedFacilities,
+                        opponentTactic: isWeekScouted
+                          ? currentScheduledFixture.favoredTactic
+                          : undefined,
+                      }
+                    );
+                    const oppZones = currentScheduledFixture.zoneRatings;
+                    const zoneComparisonRows = [
+                      {
+                        label: 'Midfield Control',
+                        ours: zonePreview.midfield,
+                        opp: oppZones.midfield,
+                      },
+                      {
+                        label: 'Our Attack vs Opp Def',
+                        ours: zonePreview.attack,
+                        opp: oppZones.defense,
+                      },
+                      {
+                        label: 'Our Def/GK vs Opp Atk',
+                        ours: zonePreview.defense,
+                        opp: oppZones.attack,
+                      },
+                      {
+                        label: 'Transition Pace',
+                        ours: zonePreview.pace,
+                        opp: oppZones.pace,
+                      },
+                    ];
                     const starText = '⭐'.repeat(prediction.stars);
 
                     return (
@@ -2303,6 +2717,34 @@ export default function App() {
                               Our Squad OVR: {prediction.teamEffectiveRating} •{' '}
                               {squadEnergy.matchConditionLabel} • {synergyInfo.synergyNote}
                             </p>
+
+                            {/* Pre-Match 4-Zone Tactical Matchup Board */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                              {zoneComparisonRows.map((zr) => {
+                                const diff = zr.ours - zr.opp;
+                                const badgeClass = !isWeekScouted
+                                  ? 'border-slate-800 bg-slate-950/70'
+                                  : diff >= 2
+                                  ? 'border-emerald-500/40 bg-emerald-950/25'
+                                  : diff <= -2
+                                  ? 'border-rose-500/40 bg-rose-950/25'
+                                  : 'border-sky-500/30 bg-slate-950/80';
+                                return (
+                                  <div
+                                    key={zr.label}
+                                    className={`p-2 rounded-xl border text-[11px] font-mono ${badgeClass}`}
+                                  >
+                                    <span className="text-[10px] text-slate-400 block truncate">
+                                      {zr.label}
+                                    </span>
+                                    <span className="font-bold text-white">
+                                      {zr.ours} vs{' '}
+                                      {isWeekScouted ? zr.opp : '??'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
 
                           <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2.5 text-xs">
@@ -2348,8 +2790,16 @@ export default function App() {
                                   onClick={() => scoutWeekOpponent(displayWeek)}
                                   className="w-full py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-[11px] border border-indigo-500/30 cursor-pointer disabled:opacity-50"
                                 >
-                                  🔍 Pay ¥400 to Reveal Exact Tactic
+                                  🔍 Pay ¥400 to Scout Zones &amp; Tactic
                                 </button>
+                              </div>
+                            )}
+
+                            {team.players.some(
+                              (p) => (p.injuryWeeksRemaining ?? 0) > 0
+                            ) && (
+                              <div className="p-2 rounded-lg bg-rose-500/15 border border-rose-500/40 text-[11px] text-rose-200 font-semibold">
+                                🏥 Injured player(s) on pitch play at -38% rating — visit Squad Roster for ¥800 Physio Rehab!
                               </div>
                             )}
 
@@ -2387,7 +2837,7 @@ export default function App() {
                   <details className="group rounded-2xl bg-slate-900 border border-slate-800 p-4">
                     <summary className="cursor-pointer list-none flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-200 hover:text-emerald-300">
                       <span>
-                        🗓️ View Full 12-Week Season Campaign Calendar &amp; Optional Cup Tiers
+                        🗓️ View Full 12-Week Season Campaign Calendar
                       </span>
                       <span className="text-[11px] font-mono text-slate-400">
                         Expand / Collapse ▼
@@ -2399,6 +2849,8 @@ export default function App() {
                         {SEASON_FIXTURE_CALENDAR.map((sched) => {
                           const isCurrentWeek = sched.week === displayWeek;
                           const isPastWeek = sched.week < displayWeek;
+                          const isSchedScouted =
+                            isPastWeek || scoutedWeeks.includes(sched.week);
                           const scaledOvr = sched.opponentRating;
                           return (
                             <div
@@ -2419,7 +2871,10 @@ export default function App() {
                               </div>
                               <p className="font-bold truncate">{sched.name}</p>
                               <p className="text-[11px] font-mono text-slate-400">
-                                Style: {sched.favoredTactic}
+                                Style:{' '}
+                                {isSchedScouted
+                                  ? sched.favoredTactic
+                                  : 'Unscouted (¥400)'}
                               </p>
                               {sched.gateNote && (
                                 <p className="text-[10px] font-mono text-amber-300 font-bold">
@@ -2429,99 +2884,6 @@ export default function App() {
                             </div>
                           );
                         })}
-                      </div>
-
-                      <div className="space-y-2.5">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                          Alternative Division Challenge Matches (Uses Weekly Official Slot)
-                        </h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          {MATCH_FIXTURES.map((fixture) => {
-                            const estScaledRating = Math.round(
-                              calculateExpectedOpponentRating(
-                                fixture.opponentRating,
-                                displayWeek
-                              )
-                            );
-                            const activeLineup = team.players.filter((p) =>
-                              selectedLineupIds.includes(p.id)
-                            );
-                            const prediction = estimateMatchWinProbability(
-                              activeLineup,
-                              estScaledRating,
-                              team.formation,
-                              team.tacticalStyle,
-                              fixture.favoredTactic
-                            );
-                            const starText = '⭐'.repeat(prediction.stars);
-                            const isUsingRecommended =
-                              team.tacticalStyle === fixture.recommendedCounter;
-
-                            return (
-                              <div
-                                key={fixture.id}
-                                className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3"
-                              >
-                                <div className="space-y-2">
-                                  <div className="flex flex-wrap items-center justify-between gap-1.5">
-                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-300">
-                                      {starText} ~{prediction.winPct}%
-                                    </span>
-                                    <span className="text-[11px] font-mono text-slate-400">
-                                      ~{estScaledRating} OVR
-                                    </span>
-                                  </div>
-                                  <h3 className="text-sm font-bold text-white">
-                                    {fixture.name}
-                                  </h3>
-                                  <div className="flex items-center justify-between text-[11px]">
-                                    <span className="text-slate-400">
-                                      Counter: {fixture.recommendedCounter}
-                                    </span>
-                                    {!isUsingRecommended && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setTactics({
-                                            tacticalStyle:
-                                              fixture.recommendedCounter,
-                                          })
-                                        }
-                                        className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold cursor-pointer"
-                                      >
-                                        Switch
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  disabled={
-                                    hasPlayedMatchThisWeek || isCampaignOver
-                                  }
-                                  onClick={() =>
-                                    runMatch(
-                                      fixture.opponentRating,
-                                      selectedLineupIds,
-                                      fixture.name,
-                                      team.tacticalStyle,
-                                      fixture.favoredTactic
-                                    )
-                                  }
-                                  className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition ${
-                                    hasPlayedMatchThisWeek || isCampaignOver
-                                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer'
-                                  }`}
-                                >
-                                  {hasPlayedMatchThisWeek
-                                    ? 'Played This Week'
-                                    : 'Play Alternative Tie'}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
                       </div>
                     </div>
                   </details>
@@ -2549,6 +2911,12 @@ export default function App() {
                         </span>
                         <span className="text-2xl font-black font-mono text-white">
                           {latestMatch.goalsFor} - {latestMatch.goalsAgainst}
+                          {latestMatch.penaltyShootout && (
+                            <span className="text-sm text-amber-300 ml-1.5">
+                              ({latestMatch.penaltyShootout.ourScore}-
+                              {latestMatch.penaltyShootout.oppScore} P)
+                            </span>
+                          )}
                         </span>
                       </div>
                       <div className="px-4 py-2 rounded-2xl bg-slate-950 border border-slate-800 text-center">
@@ -2564,6 +2932,18 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {latestMatch.penaltyShootout && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs font-semibold ${
+                        latestMatch.penaltyShootout.won
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                          : 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+                      }`}
+                    >
+                      🥅 {latestMatch.penaltyShootout.summary}
+                    </div>
+                  )}
 
                   {/* Visual Match Performance Meter Bar */}
                   <div className="space-y-2">

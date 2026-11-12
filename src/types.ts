@@ -282,6 +282,21 @@ export const DAYS_OF_WEEK: DayOfWeek[] = [
 
 export type WeeklyDaySchedule = Record<DayOfWeek, string>;
 
+export type PlayerTraitId =
+  | 'clinical_finisher'
+  | 'deep_playmaker'
+  | 'brick_wall'
+  | 'turbo_engine'
+  | 'sweeper_keeper'
+  | 'clutch_leader';
+
+export interface PlayerTrait {
+  id: PlayerTraitId;
+  name: string;
+  icon: string;
+  summary: string;
+}
+
 interface BasePlayer {
   id: string;
   name: string;
@@ -298,6 +313,9 @@ interface BasePlayer {
   preBurnoutSchedule?: WeeklyDaySchedule;
   preBurnoutTaskId?: string;
   isBurnedOut?: boolean;
+  injuryWeeksRemaining?: number;
+  injuryReason?: string;
+  traits?: PlayerTrait[];
   isCaptain?: boolean;
   captainStats?: CaptainStats;
 }
@@ -402,10 +420,44 @@ export type CrowdReaction =
 /**
  * 4. MatchResult Data Model
  */
+export interface PenaltyShootoutResult {
+  ourScore: number;
+  oppScore: number;
+  won: boolean;
+  summary: string;
+}
+
+export interface WeeklyPlayerGainReport {
+  playerId: string;
+  playerName: string;
+  statGains: string[];
+  energyDelta: number;
+  newTraits: PlayerTrait[];
+  injuredReason?: string;
+}
+
+export interface WeeklyTurnSummary {
+  week: number;
+  campTitle: string;
+  campOutcome: 'recovery' | 'breakthrough' | 'success' | 'slump';
+  totalOutflow: number;
+  playerReports: WeeklyPlayerGainReport[];
+  matchSummary?: {
+    eventName: string;
+    goalsFor: number;
+    goalsAgainst: number;
+    pointsEarned: number;
+    fundsEarned: number;
+    penaltyText?: string;
+  };
+  notes: string[];
+}
+
 export interface MatchResult {
   id: string;
   eventName: string;
   week: number;
+  isOfficial?: boolean;
   participatingPlayerIds: string[];
   opponentRating: number;
   tactic: TacticalStyle | string;
@@ -414,6 +466,7 @@ export interface MatchResult {
   goalsFor: number;
   goalsAgainst: number;
   pointsEarned: 0 | 1 | 3;
+  penaltyShootout?: PenaltyShootoutResult;
   score: number;
   crowdReaction: CrowdReaction;
   statChecks: StatCheckResult[];
@@ -443,6 +496,13 @@ export type SeasonPhase =
   | 'National Championship'
   | 'Grand Finale';
 
+export interface OpponentZoneRatings {
+  attack: number;
+  midfield: number;
+  defense: number;
+  pace: number;
+}
+
 export interface WeeklyFixtureDefinition {
   week: number;
   id: string;
@@ -450,6 +510,7 @@ export interface WeeklyFixtureDefinition {
   opponentName: string;
   stage: SeasonPhase;
   opponentRating: number;
+  zoneRatings: OpponentZoneRatings;
   favoredTactic: TacticalStyle;
   recommendedCounter: TacticalStyle;
   description: string;
@@ -490,9 +551,12 @@ export interface HalftimeZoneReport {
 
 export interface HalftimeMatchState {
   week: number;
+  isOfficial?: boolean;
   eventName: string;
   baseDifficulty: number;
   scaledOpponentRating: number;
+  scaledOpponentZones?: OpponentZoneRatings;
+  halftimeMomentum?: string;
   opponentTactic: TacticalStyle;
   tactic: TacticalStyle | string;
   formation: FormationType;

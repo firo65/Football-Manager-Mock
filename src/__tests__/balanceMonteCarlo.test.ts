@@ -11,7 +11,12 @@ import {
 } from '../simulationEngine';
 import type { FormationType, SquadCampId, TacticalStyle } from '../types';
 
-type StrategyId = 'optimal_counter' | 'balanced_casual' | 'no_scout_rush';
+type StrategyId =
+  | 'optimal_counter'
+  | 'balanced_casual'
+  | 'spotlight_chaser'
+  | 'auto_sim_only'
+  | 'no_scout_rush';
 
 interface SimSummary {
   strategy: StrategyId;
@@ -81,7 +86,28 @@ function runSimulatedCampaign(strategy: StrategyId): {
     const fixture = getScheduledFixtureForWeek(week);
     const energy = getSquadEnergySummary(state.team.players);
 
-    // 1. Decide Facilities (Optimal unlocks Tier-1 & Tier-2; Casual buys core mid-tier only)
+    // Resolve any triggered Captain Event before next turn if pending
+    if (state.activeCaptainEvent) {
+      const choice = state.activeCaptainEvent.choices[0]!;
+      state = gameReducer(state, {
+        type: 'RESOLVE_CAPTAIN_EVENT',
+        payload: { choiceId: choice.id },
+      });
+    }
+
+    if (strategy === 'auto_sim_only') {
+      state = gameReducer(state, { type: 'COMPLETE_WEEK_TURN' });
+      if (state.lastCampOutcome === 'slump') slumps += 1;
+      for (const p of state.team.players) {
+        if ((p.injuryWeeksRemaining ?? 0) > 0) injuriesSeen += 1;
+      }
+      if (state.matchHistory[0]?.week === week && state.matchHistory[0]?.penaltyShootout) {
+        shootouts += 1;
+      }
+      continue;
+    }
+
+    // 1. Decide Facilities (Optimal unlocks Tier-1 & Tier-2; Casual/Spotlight buy core mid-tier only)
     if (strategy === 'optimal_counter') {
       const priorityIds = [
         'tactical_analysis_suite',
@@ -103,7 +129,7 @@ function runSimulatedCampaign(strategy: StrategyId): {
           }
         }
       }
-    } else if (strategy === 'balanced_casual') {
+    } else if (strategy === 'balanced_casual' || strategy === 'spotlight_chaser') {
       const priorityIds = [
         'tactical_analysis_suite',
         'strength_gym',
@@ -123,7 +149,7 @@ function runSimulatedCampaign(strategy: StrategyId): {
       }
     }
 
-    // 2. Heal injured starters via ¥800 Physio Rehab if playing Optimal/Balanced
+    // 2. Heal injured starters via ¥800 Physio Rehab if playing Optimal/Balanced/Spotlight
     if (strategy !== 'no_scout_rush') {
       for (const p of state.team.players) {
         if ((p.injuryWeeksRemaining ?? 0) > 0 && state.team.funds >= 800) {
@@ -139,6 +165,20 @@ function runSimulatedCampaign(strategy: StrategyId): {
     let campId: SquadCampId = 'camp_scrimmage';
     if (strategy === 'no_scout_rush') {
       campId = 'camp_attack';
+    } else if (strategy === 'spotlight_chaser') {
+      // Greedily grabs weekly spotlighted camps unless energy drops below 40% avg / 32% min
+      const spaSpotlight = state.weeklySpotlights.find(
+        (s) => s.campId === 'camp_recovery'
+      );
+      if (energy.avgStamina < 40 || energy.minStamina < 32) {
+        campId = 'camp_recovery';
+      } else if (spaSpotlight && energy.avgStamina < 65) {
+        campId = 'camp_recovery';
+      } else if (state.weeklySpotlights.length > 0) {
+        campId = state.weeklySpotlights[0]!.campId;
+      } else {
+        campId = 'camp_scrimmage';
+      }
     } else if (strategy === 'optimal_counter') {
       if (
         energy.avgStamina < 58 ||
@@ -193,7 +233,8 @@ function runSimulatedCampaign(strategy: StrategyId): {
     // 4. Optional Scouting
     if (
       strategy === 'optimal_counter' ||
-      (strategy === 'balanced_casual' && week >= 6)
+      ((strategy === 'balanced_casual' || strategy === 'spotlight_chaser') &&
+        week >= 6)
     ) {
       if (state.team.funds >= 400) {
         state = gameReducer(state, {
@@ -360,15 +401,18 @@ describe('12-Week Campaign Monte Carlo Playability Simulation', () => {
   it('verifies strategy differentiation, economy balance, and progression curve across 300 runs per strategy', () => {
     const optimal = runMonteCarlo('optimal_counter', 300);
     const casual = runMonteCarlo('balanced_casual', 300);
+    const spotlightChaser = runMonteCarlo('spotlight_chaser', 300);
+    const autoSimOnly = runMonteCarlo('auto_sim_only', 300);
     const rush = runMonteCarlo('no_scout_rush', 300);
 
     console.log('\n=== 12-WEEK MONTE CARLO BALANCE REPORT (300 RUNS EACH) ===');
-    console.table([optimal, casual, rush]);
+    console.table([optimal, casual, spotlightChaser, autoSimOnly, rush]);
 
     // 1. Optimal tactical management should meaningfully outperform casual & no-rest/no-scout play
     expect(optimal.survivedWeek6Pct).toBeGreaterThan(rush.survivedWeek6Pct);
     expect(optimal.avgLeaguePoints).toBeGreaterThan(rush.avgLeaguePoints);
     expect(optimal.avgLeaguePoints).toBeGreaterThan(casual.avgLeaguePoints);
+    expect(optimal.avgLeaguePoints).toBeGreaterThan(autoSimOnly.avgLeaguePoints);
 
     // 2. Traits should actually unlock during a 12-week run for smart managers
     expect(optimal.avgTraitsUnlocked).toBeGreaterThanOrEqual(1);

@@ -38,6 +38,7 @@ import {
   QuickCampStrip,
   TACTICS,
 } from './uiPrimitives';
+import { CoachTipBanner, ManualLinkButton } from './CoachTutorial';
 
 export function MatchEngineView({
   team,
@@ -220,7 +221,17 @@ export function MatchEngineView({
             Configure tactics on the left and check live zone odds before kickoff on the right.
           </p>
         </div>
+        <ManualLinkButton section="tactics" label="Tactics & Scout Guide" />
       </div>
+
+      {!isCampaignOver && !halftimeState && !hasPlayedMatchThisWeek && (
+        <CoachTipBanner
+          hintId="hint_match_counter"
+          title="Scout first, then counter their tactic"
+          body="Pay ¥400 to Scout the opponent's tactic & formation, then pick the counter style: Attacking beats Balanced, Counter beats Attacking, Balanced beats Counter. You can adjust again at Halftime."
+          guideSection="tactics"
+        />
+      )}
 
       {/* Pending Mon-Fri Camp Prompt */}
       {!isCampaignOver &&
@@ -292,6 +303,14 @@ export function MatchEngineView({
               {halftimeState.halftimeMomentum}
             </div>
           )}
+
+          <CoachTipBanner
+            hintId="hint_halftime_adjust"
+            title="45' Halftime Adjustments"
+            body="Check the opponent's adapted tactic & shape above and swap yours to counter them for the second half. If you're trailing or chasing a win, toggle Captain Rally (-8 Squad Energy) for an all-zone surge."
+            tone="amber"
+            guideSection="tactics"
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {halftimeState.zoneReports.map((zr) => (

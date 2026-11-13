@@ -2111,10 +2111,10 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'legend_visit',
     badge: '🌟 Guest Pro',
     title: 'Guest Tactician Visit',
-    effectSummary: '+35% Camp Gains & +4 Cap Confidence',
-    gainMultiplier: 1.35,
+    effectSummary: '+20% Camp Gains & +2 Cap Confidence (+3 Energy Drain)',
+    gainMultiplier: 1.2,
     energyCostMultiplier: 1.0,
-    extraEnergyCost: 0,
+    extraEnergyCost: 3,
     extraFailureChance: 0,
     failureChanceMultiplier: 1.0,
     bonusPrimaryStat: 0,
@@ -2122,7 +2122,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     bonusFans: 0,
     bonusMorale: 1,
     autoScoutWeek: false,
-    captainBonus: { confidence: 4 },
+    captainBonus: { confidence: 2 },
   },
   cryo_popup: {
     kind: 'cryo_popup',
@@ -2137,66 +2137,66 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     bonusPrimaryStat: 0,
     bonusFunds: 0,
     bonusFans: 0,
-    bonusMorale: 2,
+    bonusMorale: 1,
     autoScoutWeek: false,
   },
   trait_spark: {
     kind: 'trait_spark',
     badge: '⚡ Trait Spark',
     title: 'Specialist Trait Clinic',
-    effectSummary: '+1 Bonus Primary Stat per Starter & +4 Cap Passion',
-    gainMultiplier: 1.1,
+    effectSummary:
+      '+1 Bonus Primary Stat per Starter & +2 Cap Passion (+4 Energy, +3% Risk)',
+    gainMultiplier: 1.0,
     energyCostMultiplier: 1.0,
-    extraEnergyCost: 0,
-    extraFailureChance: 0,
+    extraEnergyCost: 4,
+    extraFailureChance: 0.03,
     failureChanceMultiplier: 1.0,
     bonusPrimaryStat: 1,
     bonusFunds: 0,
     bonusFans: 0,
     bonusMorale: 0,
     autoScoutWeek: false,
-    captainBonus: { passion: 4 },
+    captainBonus: { passion: 2 },
   },
   sponsor_showcase: {
     kind: 'sponsor_showcase',
     badge: '📺 Broadcast',
     title: 'Live Practice Showcase',
-    effectSummary: '+¥1,400 Cash, +180 Squad Fans & +4 Cap Charisma',
+    effectSummary: '+¥800 Cash, +130 Squad Fans & +2 Cap Charisma',
     gainMultiplier: 1.0,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 0,
     extraFailureChance: 0,
     failureChanceMultiplier: 1.0,
     bonusPrimaryStat: 0,
-    bonusFunds: 1400,
-    bonusFans: 180,
-    bonusMorale: 2,
+    bonusFunds: 800,
+    bonusFans: 130,
+    bonusMorale: 1,
     autoScoutWeek: false,
-    captainBonus: { charisma: 4 },
+    captainBonus: { charisma: 2 },
   },
   double_intensity: {
     kind: 'double_intensity',
     badge: '🔥 Double Shift',
     title: 'Rainbow Double-Shift Surge',
-    effectSummary: '+55% Camp Gains (+6% Slump Risk, +4 Energy Drain)',
-    gainMultiplier: 1.55,
+    effectSummary: '+32% Camp Gains (+10% Slump Risk, +8 Energy Drain)',
+    gainMultiplier: 1.32,
     energyCostMultiplier: 1.0,
-    extraEnergyCost: 4,
-    extraFailureChance: 0.06,
+    extraEnergyCost: 8,
+    extraFailureChance: 0.1,
     failureChanceMultiplier: 1.0,
     bonusPrimaryStat: 0,
     bonusFunds: 0,
     bonusFans: 0,
     bonusMorale: 0,
     autoScoutWeek: false,
-    captainBonus: { passion: 3, confidence: 2 },
   },
   scout_clinic: {
     kind: 'scout_clinic',
     badge: '📋 Video Scout',
     title: 'Opponent Video Clinic',
-    effectSummary: 'Free Week Scout (or +¥400) & +20% Camp Gains',
-    gainMultiplier: 1.2,
+    effectSummary: 'Free Week Scout (or +¥400) & +8% Camp Gains',
+    gainMultiplier: 1.08,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 0,
     extraFailureChance: 0,
@@ -2206,13 +2206,12 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     bonusFans: 0,
     bonusMorale: 0,
     autoScoutWeek: true,
-    captainBonus: { confidence: 3 },
   },
   miracle_spa: {
     kind: 'miracle_spa',
     badge: '🫧 Miracle Spa',
     title: 'Pro Hydrotherapy Retreat',
-    effectSummary: '+14 Extra Recovery Stamina, +5 Morale & +4 Cap Charisma',
+    effectSummary: '+9 Extra Recovery Stamina, +3 Morale & +1 Cap Charisma',
     gainMultiplier: 1.0,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 0,
@@ -2220,10 +2219,10 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     failureChanceMultiplier: 0.0,
     bonusPrimaryStat: 0,
     bonusFunds: 0,
-    bonusFans: 60,
-    bonusMorale: 5,
+    bonusFans: 30,
+    bonusMorale: 3,
     autoScoutWeek: false,
-    captainBonus: { charisma: 4 },
+    captainBonus: { charisma: 1 },
   },
 };
 
@@ -2355,7 +2354,7 @@ export function processSquadCampWeek(
     const staminaGain =
       Math.abs(camp.energyCost) +
       (hasRehabCenter ? 8 : 0) +
-      (isSpaSpotlight ? 14 : 0);
+      (isSpaSpotlight ? 9 : 0);
     const stressDrop =
       Math.abs(camp.stressDelta) +
       (hasRehabCenter ? 8 : 0) +
@@ -4223,7 +4222,7 @@ function finalizeMatchOutcomeMetrics(params: {
 
   const difficultyMult = 0.7 + (scaledOpponentRating / 100) * 1.3;
   const fundsEarned = Math.round(
-    (pointsEarned === 3 ? 8500 : pointsEarned === 1 ? 4200 : 1800) *
+    (pointsEarned === 3 ? 7100 : pointsEarned === 1 ? 3600 : 1600) *
       difficultyMult
   );
   const fansGained = Math.round(

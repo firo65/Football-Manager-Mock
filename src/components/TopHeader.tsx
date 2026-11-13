@@ -1,4 +1,5 @@
-import { RotateCcw, Shield } from 'lucide-react';
+import { BookOpen, RotateCcw, Shield } from 'lucide-react';
+import { useCoachTips } from '../CoachTipsContext';
 import { formatCalendarDate } from './uiPrimitives';
 
 export function TopHeader({
@@ -28,6 +29,8 @@ export function TopHeader({
   isCampaignOver: boolean;
   onRestart: () => void;
 }) {
+  const { openGuide } = useCoachTips();
+
   return (
     <header className="sticky top-0 z-30 shrink-0 border-b border-slate-800/80 bg-slate-900/95 backdrop-blur px-5 py-2.5">
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -87,6 +90,16 @@ export function TopHeader({
               </span>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => openGuide()}
+            title="Open Manager's Field Manual"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-emerald-950/60 border border-slate-700/80 hover:border-emerald-500/50 text-slate-200 hover:text-emerald-200 font-semibold text-xs transition cursor-pointer"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+            Guide
+          </button>
 
           {isCampaignOver ? (
             <button

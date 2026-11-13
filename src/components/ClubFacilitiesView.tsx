@@ -6,6 +6,7 @@ import type {
   HalftimeMatchState,
   Team,
 } from '../types';
+import { CoachTipBanner } from './CoachTutorial';
 
 export function ClubFacilitiesView({
   team,
@@ -30,6 +31,15 @@ export function ClubFacilitiesView({
           Invest match earnings into Tier-1 &amp; Tier-2 facilities and track seasonal Captain perks.
         </p>
       </div>
+
+      {!isCampaignOver && (
+        <CoachTipBanner
+          hintId="hint_club_facilities"
+          title="Invest early in Facilities"
+          body="Upgrades like Conditioning Gym and Medical Rehab Center trigger every single week—buying Tier-1 upgrades in Weeks 2–4 saves huge stamina and cuts slump risk before the Week 6 checkpoint."
+          guideSection="season"
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="bg-slate-900/75 border border-slate-800/70 rounded-2xl p-5 space-y-3.5">

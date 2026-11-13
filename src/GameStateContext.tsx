@@ -698,10 +698,10 @@ function applyWeeklyCampToState(state: GameState): GameState {
     },
     0
   );
-  const squadWages = 1200 + state.week * 100;
+  const squadWages = 1300 + state.week * 125;
   const totalFans = state.team.players.reduce((s, p) => s + p.fanbase, 0);
   const sponsorStipend = Math.round(
-    450 + state.team.reputation * 18 + totalFans * 0.08
+    400 + state.team.reputation * 14 + totalFans * 0.055
   );
   const totalWeeklyOutflow = Math.max(
     0,

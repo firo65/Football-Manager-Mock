@@ -15,6 +15,7 @@ import type {
   WeeklyTurnSummary,
 } from '../types';
 import { CharacterStage } from './CharacterStage';
+import { CoachTipBanner } from './CoachTutorial';
 import {
   type ActiveTab,
   getConditionToneClasses,
@@ -28,6 +29,8 @@ export function ManagerDeskView({
   featuredPlayerId,
   displayWeek,
   seasonLength,
+  leaguePoints,
+  matchHistoryCount,
   currentScheduledFixture,
   nextScheduledFixture,
   isCampaignOver,
@@ -49,6 +52,8 @@ export function ManagerDeskView({
   featuredPlayerId: string;
   displayWeek: number;
   seasonLength: number;
+  leaguePoints: number;
+  matchHistoryCount: number;
   currentScheduledFixture: WeeklyFixtureDefinition;
   nextScheduledFixture: WeeklyFixtureDefinition | null;
   isCampaignOver: boolean;
@@ -70,6 +75,27 @@ export function ManagerDeskView({
 
   return (
     <div className="space-y-5">
+      {!isCampaignOver && (
+        <>
+          <CoachTipBanner
+            hintId="hint_desk_loop"
+            title="How each week works (2 steps)"
+            body="1) Pick a Mon–Fri Squad Camp below or in Training Planner to grow stats, then 2) open 5v5 Match Engine to scout your opponent and kick off Sunday's match. The Week Flow checklist on the left keeps track for you."
+            guideSection="loop"
+            actionLabel="Open Training Planner"
+            onAction={() => onNavigate('schedule')}
+            hidden={matchHistoryCount >= 2}
+          />
+          <CoachTipBanner
+            hintId="hint_week5_checkpoint"
+            title="Board Checkpoint next week (Week 6)"
+            body={`You need 9+ League Points by the end of Week 6 to stay in the campaign (currently ${leaguePoints} pts). Check Scouting, Pre-Match Prep, and Stamina before kickoff.`}
+            tone="amber"
+            guideSection="season"
+            hidden={!(displayWeek === 5 && leaguePoints < 9)}
+          />
+        </>
+      )}
       {/* Top 2-Column Stage + Command Deck */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         <div className="lg:col-span-5 flex flex-col">

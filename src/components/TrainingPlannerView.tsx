@@ -15,6 +15,7 @@ import type {
   WeeklyCampSpotlight,
   WeeklyFixtureDefinition,
 } from '../types';
+import { CoachTipBanner } from './CoachTutorial';
 import { type ActiveTab, getConditionToneClasses } from './uiPrimitives';
 
 export function TrainingPlannerView({
@@ -124,6 +125,25 @@ export function TrainingPlannerView({
           </button>
         </div>
       </div>
+
+      {!isCampaignOver && (
+        <>
+          <CoachTipBanner
+            hintId="hint_training_spotlights"
+            title="Spotlights & Stamina balance"
+            body="Two camps roll Weekly Spotlights every Monday with extra gains or cash, though intense drills cost more energy. Watch the Projected Energy badge on each card—going under 64% weakens Sunday Match OVR."
+            guideSection="energy"
+          />
+          <CoachTipBanner
+            hintId="hint_fatigue_warning"
+            title="Squad Energy is dipping below 60%"
+            body="Running heavy drills while tired spikes Slump Risk (half gains) and can injure players. Consider Full Squad Recovery (+42 Energy, 0% risk) or a Cryo spotlight."
+            tone="amber"
+            guideSection="energy"
+            hidden={!(!hasRunCampThisWeek && squadEnergy.avgStamina < 60)}
+          />
+        </>
+      )}
 
       {/* Squad Energy + Upcoming Fixture Analysis */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -271,7 +291,7 @@ export function TrainingPlannerView({
             ? -(
                 Math.abs(camp.energyCost) +
                 (hasRehab ? 8 : 0) +
-                (campSpotlight?.kind === 'miracle_spa' ? 14 : 0)
+                (campSpotlight?.kind === 'miracle_spa' ? 9 : 0)
               )
             : Math.max(
                 4,

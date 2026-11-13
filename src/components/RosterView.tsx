@@ -12,6 +12,7 @@ import {
   type PlayerPosition,
   type Team,
 } from '../types';
+import { CoachTipBanner, ManualLinkButton } from './CoachTutorial';
 import {
   type ActiveTab,
   getConditionToneClasses,
@@ -48,15 +49,27 @@ export function RosterView({
             1 GK, 2 DEF, 2 FWD. Review role OVR and energy at a glance, or expand detailed stats when needed.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onNavigate('schedule')}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
-        >
-          <Calendar className="w-3.5 h-3.5" />
-          Open Training Planner
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ManualLinkButton section="energy" label="Captain Aura & Traits Guide" />
+          <button
+            type="button"
+            onClick={() => onNavigate('schedule')}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            Open Training Planner
+          </button>
+        </div>
       </div>
+
+      {!isCampaignOver && (
+        <CoachTipBanner
+          hintId="hint_roster_captain"
+          title="Roles, Captain Aura & Traits"
+          body="Keep starters in their natural green roles for full ratings (switch Formations in Match Engine to use a MID). Your Captain's Confidence boosts camp gains, Passion saves stamina, and Charisma lowers slump risk."
+          guideSection="energy"
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {team.players.map((player) => {

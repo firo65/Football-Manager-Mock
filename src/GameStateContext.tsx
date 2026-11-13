@@ -15,6 +15,7 @@ import {
   FacilityId,
   FormationType,
   HalftimeMatchState,
+  MatchPrepId,
   MatchResult,
   OpponentZoneRatings,
   Player,
@@ -36,6 +37,7 @@ import {
   INITIAL_CAPTAIN_MILESTONES,
   INITIAL_MATCH_HISTORY,
   INITIAL_TEAM,
+  MATCH_PREP_OPTIONS,
   SEASON_FIXTURE_CALENDAR,
   SQUAD_CAMP_OPTIONS,
 } from './mockData';
@@ -58,6 +60,7 @@ import {
   evaluatePlayerTraits,
   evaluateTacticalSynergy,
   getCaptainBuffMultipliers,
+  getFormationMatchupMultiplier,
   getPlayerConditionSummary,
   getRoleTrainingMultiplier,
   getSquadEnergySummary,
@@ -89,11 +92,13 @@ export {
   evaluatePlayerTraits,
   evaluateTacticalSynergy,
   getCaptainBuffMultipliers,
+  getFormationMatchupMultiplier,
   getPlayerConditionSummary,
   getRoleTrainingMultiplier,
   getScheduledFixtureForWeek,
   getSquadEnergySummary,
   hasPlayerTrait,
+  MATCH_PREP_OPTIONS,
   PLAYER_TRAIT_CATALOG,
   processSquadCampWeek,
   processWeeklySchedule,
@@ -113,6 +118,8 @@ export interface GameState {
   lastCampOutcome: 'recovery' | 'breakthrough' | 'success' | 'slump' | null;
   scoutedWeeks: number[];
   halftimeState: HalftimeMatchState | null;
+  activeMatchPrep: MatchPrepId;
+  freshBounceActive: boolean;
   agency: Team;
   team: Team;
   availableTasks: ScheduleTask[];
@@ -138,6 +145,8 @@ export const INITIAL_GAME_STATE: GameState = {
   lastCampOutcome: null,
   scoutedWeeks: [],
   halftimeState: null,
+  activeMatchPrep: 'none',
+  freshBounceActive: false,
   agency: INITIAL_TEAM,
   team: INITIAL_TEAM,
   availableTasks: DEFAULT_SCHEDULE_TASKS,
@@ -163,10 +172,29 @@ function loadSavedGameState(fallback: GameState): GameState {
     if (!parsed || typeof parsed.week !== 'number' || !parsed.team?.players) {
       return fallback;
     }
+    const migratedPlayers = parsed.team.players.map((p) =>
+      p.id === 'player_02' && p.position === 'FWD'
+        ? {
+            ...p,
+            position: 'MID' as const,
+            assignedPosition:
+              p.assignedPosition === 'FWD' ? ('MID' as const) : p.assignedPosition,
+          }
+        : p
+    );
+    const migratedTeam = {
+      ...parsed.team,
+      players: migratedPlayers,
+      idols: migratedPlayers,
+    };
     return {
       ...fallback,
       ...parsed,
+      team: migratedTeam,
+      agency: migratedTeam,
       halftimeState: parsed.halftimeState ?? null,
+      activeMatchPrep: parsed.activeMatchPrep ?? 'none',
+      freshBounceActive: Boolean(parsed.freshBounceActive),
       hasRunCampThisWeek: Boolean(parsed.hasRunCampThisWeek),
       hasPlayedMatchThisWeek: Boolean(parsed.hasPlayedMatchThisWeek),
     };
@@ -178,6 +206,10 @@ function loadSavedGameState(fallback: GameState): GameState {
 export type GameAction =
   | { type: 'SELECT_SQUAD_CAMP'; payload: { campId: SquadCampId } }
   | { type: 'SCOUT_WEEK_OPPONENT'; payload?: { week?: number; cost?: number } }
+  | {
+      type: 'ACTIVATE_MATCH_PREP';
+      payload: { prepId: Exclude<MatchPrepId, 'none'> };
+    }
   | {
       type: 'START_HALFTIME_MATCH';
       payload?: {
@@ -415,16 +447,22 @@ function applyCompletedMatchToState(
     state.team.unlockedFacilities.includes('youth_academy');
   const hasStrengthGym =
     state.team.unlockedFacilities.includes('strength_gym');
+  const hasCryoGel = !isExhibition && state.activeMatchPrep === 'cryo_gel';
+  const hasMediaHype = !isExhibition && state.activeMatchPrep === 'media_hype';
 
   const fundsEarned = isExhibition
     ? 0
     : Math.round(
-        rawResult.rewards.fundsEarned * (hasYouthAcademy ? 1.15 : 1.0)
+        rawResult.rewards.fundsEarned *
+          (hasYouthAcademy ? 1.15 : 1.0) *
+          (hasMediaHype ? 1.35 : 1.0)
       );
   const fansGained = isExhibition
     ? Math.round(rawResult.rewards.fansGained * 0.15)
     : Math.round(
-        rawResult.rewards.fansGained * (hasYouthAcademy ? 1.25 : 1.0)
+        rawResult.rewards.fansGained *
+          (hasYouthAcademy ? 1.25 : 1.0) *
+          (hasMediaHype ? 1.35 : 1.0)
       );
   const pointsAwarded: 0 | 1 | 3 = isExhibition ? 0 : rawResult.pointsEarned;
   const reputationDelta = isExhibition ? 0 : rawResult.rewards.reputationDelta;
@@ -467,14 +505,18 @@ function applyCompletedMatchToState(
     const stamCost = Math.round(
       baseMatchStaminaCost *
         (isTeammate ? captainBuffs.staminaLossFactor : 1.0) *
-        turboTraitFactor
+        turboTraitFactor *
+        (hasCryoGel ? 0.45 : 1.0)
     );
     const stressCost = Math.round(
       baseMatchStressCost *
-        (isTeammate ? captainBuffs.stressGainFactor : 1.0)
+        (isTeammate ? captainBuffs.stressGainFactor : 1.0) *
+        (hasCryoGel ? 0.45 : 1.0)
     );
     const nextStatus = {
-      stamina: clamp0To100(player.status.stamina - stamCost),
+      stamina: clamp0To100(
+        player.status.stamina - stamCost + (hasCryoGel ? 4 : 0)
+      ),
       stress: clamp0To100(player.status.stress + stressCost),
       morale: clamp0To100(player.status.morale + matchMoraleDelta),
     };
@@ -602,7 +644,12 @@ function applyCompletedMatchToState(
  * (or automatically during ADVANCE_WEEK if skipped).
  */
 function applyWeeklyCampToState(state: GameState): GameState {
-  if (state.hasRunCampThisWeek || state.campaignStatus !== 'in_progress') {
+  if (
+    state.hasRunCampThisWeek ||
+    state.halftimeState !== null ||
+    state.hasPlayedMatchThisWeek ||
+    state.campaignStatus !== 'in_progress'
+  ) {
     return state;
   }
 
@@ -614,12 +661,19 @@ function applyWeeklyCampToState(state: GameState): GameState {
   const facilityUpkeep = state.team.unlockedFacilities.reduce(
     (sum, facId) => {
       const def = FACILITY_CATALOG.find((f) => f.id === facId);
-      return sum + (def?.weeklyUpkeep ?? 200);
+      return sum + (def?.weeklyUpkeep ?? 180);
     },
     0
   );
-  const squadWages = 1500 + state.week * 120;
-  const totalWeeklyOutflow = weeklyCosts + facilityUpkeep + squadWages;
+  const squadWages = 1200 + state.week * 100;
+  const totalFans = state.team.players.reduce((s, p) => s + p.fanbase, 0);
+  const sponsorStipend = Math.round(
+    450 + state.team.reputation * 18 + totalFans * 0.08
+  );
+  const totalWeeklyOutflow = Math.max(
+    0,
+    weeklyCosts + facilityUpkeep + squadWages - sponsorStipend
+  );
 
   const {
     updatedPlayers,
@@ -631,7 +685,7 @@ function applyWeeklyCampToState(state: GameState): GameState {
     unlockedFacilities: state.team.unlockedFacilities,
   });
 
-  const headerLog = `=== Week ${state.week} Mon–Fri Camp: ${selectedCamp.title} (Camp: ¥${weeklyCosts.toLocaleString()} + Wages/Upkeep: ¥${(facilityUpkeep + squadWages).toLocaleString()}) ===`;
+  const headerLog = `=== Week ${state.week} Mon–Fri Camp: ${selectedCamp.title} (Camp: ¥${weeklyCosts.toLocaleString()} + Wages/Upkeep: ¥${(facilityUpkeep + squadWages).toLocaleString()} - Sponsor Stipend: +¥${sponsorStipend.toLocaleString()} = Net -¥${totalWeeklyOutflow.toLocaleString()}) ===`;
 
   const milestoneCheck = evaluateMilestones({
     ...state,
@@ -663,6 +717,7 @@ function applyWeeklyCampToState(state: GameState): GameState {
     ...nextState,
     hasRunCampThisWeek: true,
     lastCampOutcome: campOutcome,
+    freshBounceActive: campOutcome === 'recovery',
     milestones: milestoneCheck.updatedMilestones,
     activeCaptainEvent: triggeredCaptainEvent ?? state.activeCaptainEvent,
     lastWeekSummary: {
@@ -686,6 +741,7 @@ function applyWeeklyCampToState(state: GameState): GameState {
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'SELECT_SQUAD_CAMP': {
+      if (state.halftimeState !== null) return state;
       return {
         ...state,
         selectedCampId: action.payload.campId,
@@ -693,6 +749,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SCOUT_WEEK_OPPONENT': {
+      if (state.halftimeState !== null) return state;
       const targetWeek = action.payload?.week ?? state.week;
       const cost = action.payload?.cost ?? 400;
       if (state.scoutedWeeks.includes(targetWeek) || state.team.funds < cost) {
@@ -708,36 +765,103 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...nextState,
         scoutedWeeks: [...state.scoutedWeeks, targetWeek],
         weeklySummaryLogs: [
-          `[SCOUT REPORT • Week ${targetWeek}] ${fixture.opponentName} favors ${fixture.favoredTactic} futsal (Counter: ${fixture.recommendedCounter}) • Zones: Atk ${z.attack} | Mid ${z.midfield} | Def ${z.defense} | Pace ${z.pace}. (-¥${cost})`,
+          `[SCOUT REPORT • Week ${targetWeek}] ${fixture.opponentName} plays ${fixture.favoredTactic} (${fixture.opponentFormation}) • Counter: ${fixture.recommendedCounter}${
+            fixture.recommendedFormation
+              ? ` / ${fixture.recommendedFormation}`
+              : ''
+          } • Zones: Atk ${z.attack} | Mid ${z.midfield} | Def ${z.defense} | Pace ${z.pace}${
+            fixture.bossPerk ? ` • ⚠️ ${fixture.bossPerk.name}` : ''
+          }. (-¥${cost})`,
+          ...state.weeklySummaryLogs,
+        ],
+      };
+    }
+
+    case 'ACTIVATE_MATCH_PREP': {
+      if (
+        state.campaignStatus !== 'in_progress' ||
+        state.halftimeState !== null ||
+        state.hasPlayedMatchThisWeek ||
+        state.activeMatchPrep !== 'none'
+      ) {
+        return state;
+      }
+      const prepDef = MATCH_PREP_OPTIONS.find(
+        (p) => p.id === action.payload.prepId
+      );
+      if (!prepDef || state.team.funds < prepDef.cost) {
+        return state;
+      }
+      let nextPlayers = state.team.players;
+      if (prepDef.id === 'media_hype') {
+        nextPlayers = nextPlayers.map((p) => {
+          if (!p.isCaptain || !p.captainStats) return p;
+          return {
+            ...p,
+            captainStats: {
+              confidence: clamp0To100(p.captainStats.confidence + 3),
+              passion: clamp0To100(p.captainStats.passion + 3),
+              charisma: clamp0To100(p.captainStats.charisma + 3),
+            },
+          };
+        });
+      }
+      const traitEval = evaluateSquadTraits(nextPlayers);
+      const nextState = syncTeamState(state, {
+        ...state.team,
+        funds: state.team.funds - prepDef.cost,
+        players: traitEval.updatedPlayers,
+      });
+      return {
+        ...nextState,
+        activeMatchPrep: prepDef.id,
+        weeklySummaryLogs: [
+          `[MATCH PREP • Week ${state.week}] ${prepDef.emoji} ${prepDef.title} armed (-¥${prepDef.cost.toLocaleString()}): ${prepDef.summary}.`,
+          ...traitEval.traitLogs,
           ...state.weeklySummaryLogs,
         ],
       };
     }
 
     case 'START_HALFTIME_MATCH': {
-      if (state.campaignStatus !== 'in_progress' || state.hasPlayedMatchThisWeek) {
+      if (
+        state.campaignStatus !== 'in_progress' ||
+        state.hasPlayedMatchThisWeek ||
+        state.halftimeState !== null
+      ) {
         return state;
       }
-      const scheduledFixture = getScheduledFixtureForWeek(state.week);
+      // Enforce chronological week order: Mon-Fri Camp always resolves before Sunday Kickoff
+      const preMatchState = state.hasRunCampThisWeek
+        ? state
+        : applyWeeklyCampToState(state);
+
+      const scheduledFixture = getScheduledFixtureForWeek(preMatchState.week);
       const participatingIds = action.payload?.participatingIdolIds;
       const lineup =
         participatingIds && participatingIds.length > 0
-          ? state.team.players.filter((p) => participatingIds.includes(p.id))
-          : state.team.players;
+          ? preMatchState.team.players.filter((p) =>
+              participatingIds.includes(p.id)
+            )
+          : preMatchState.team.players;
 
       const halftimeState: HalftimeMatchState = {
         ...simulateFirstHalf(
           lineup,
           action.payload?.targetDifficulty ?? scheduledFixture.opponentRating,
-          state.team.tacticalStyle,
+          preMatchState.team.tacticalStyle,
           {
             eventName: action.payload?.eventName ?? scheduledFixture.name,
-            week: state.week,
-            formation: state.team.formation,
+            week: preMatchState.week,
+            formation: preMatchState.team.formation,
             opponentTactic:
               action.payload?.opponentTactic ?? scheduledFixture.favoredTactic,
+            opponentFormation: scheduledFixture.opponentFormation,
+            bossPerkId: scheduledFixture.bossPerk?.id,
+            activeMatchPrep: preMatchState.activeMatchPrep,
+            freshBounce: preMatchState.freshBounceActive,
             opponentZones: scheduledFixture.zoneRatings,
-            unlockedFacilities: state.team.unlockedFacilities,
+            unlockedFacilities: preMatchState.team.unlockedFacilities,
             disableWeekScaling: true,
           }
         ),
@@ -745,7 +869,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
 
       return {
-        ...state,
+        ...preMatchState,
         halftimeState,
       };
     }
@@ -1009,7 +1133,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'COMPLETE_WEEK_TURN': {
-      if (state.campaignStatus !== 'in_progress') {
+      if (
+        state.campaignStatus !== 'in_progress' ||
+        state.halftimeState !== null
+      ) {
         return state;
       }
 
@@ -1040,6 +1167,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'ADVANCE_WEEK': {
+      if (state.halftimeState !== null) {
+        return state;
+      }
       const postCampState = state.hasRunCampThisWeek
         ? state
         : applyWeeklyCampToState(state);
@@ -1128,6 +1258,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...nextState,
         week: nextWeek,
         halftimeState: null,
+        activeMatchPrep: 'none',
+        freshBounceActive: false,
         campaignStatus: nextCampaignStatus,
         campaignOutcomeReason: nextOutcomeReason,
         hasRunCampThisWeek: false,
@@ -1144,6 +1276,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'RUN_PERFORMANCE': {
+      if (state.halftimeState !== null) {
+        return state;
+      }
       const {
         targetDifficulty,
         participatingIdolIds,
@@ -1155,30 +1290,42 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         isOfficial,
       } = action.payload;
       const isExhibition = !isOfficial || state.hasPlayedMatchThisWeek;
+      const workingState =
+        !isExhibition && !state.hasRunCampThisWeek
+          ? applyWeeklyCampToState(state)
+          : state;
 
       const lineup =
         participatingIdolIds && participatingIdolIds.length > 0
-          ? state.team.players.filter((p) =>
+          ? workingState.team.players.filter((p) =>
               participatingIdolIds.includes(p.id)
             )
-          : state.team.players;
+          : workingState.team.players;
 
-      const activeTactic = tactic ?? state.team.tacticalStyle;
+      const scheduledFixture = getScheduledFixtureForWeek(workingState.week);
+      const activeTactic = tactic ?? workingState.team.tacticalStyle;
       const rawResult = simulateMatch(lineup, targetDifficulty, activeTactic, {
         eventName: isExhibition
           ? `[Exhibition] ${eventName ?? 'Friendly Scrimmage'}`
           : eventName,
-        week: state.week,
-        formation: state.team.formation,
+        week: workingState.week,
+        formation: workingState.team.formation,
         opponentTactic,
+        opponentFormation: !isExhibition
+          ? scheduledFixture.opponentFormation
+          : undefined,
+        bossPerkId: !isExhibition ? scheduledFixture.bossPerk?.id : undefined,
+        activeMatchPrep: !isExhibition ? workingState.activeMatchPrep : 'none',
+        freshBounce: !isExhibition ? workingState.freshBounceActive : false,
         opponentZones,
-        unlockedFacilities: state.team.unlockedFacilities,
+        unlockedFacilities: workingState.team.unlockedFacilities,
         disableWeekScaling,
-        isKnockoutFinale: !isExhibition && state.week >= state.seasonLength,
+        isKnockoutFinale:
+          !isExhibition && workingState.week >= workingState.seasonLength,
       });
 
       return applyCompletedMatchToState(
-        state,
+        workingState,
         rawResult,
         isExhibition,
         activeTactic,
@@ -1281,6 +1428,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'HEAL_PLAYER_REHAB': {
+      if (state.halftimeState !== null) return state;
       const { playerId } = action.payload;
       if (state.team.funds < REHAB_PHYSIO_COST) return state;
       const target = state.team.players.find((p) => p.id === playerId);
@@ -1345,6 +1493,7 @@ export interface GameStateContextValue {
   state: GameState;
   selectSquadCamp: (campId: SquadCampId) => void;
   scoutWeekOpponent: (week?: number) => void;
+  activateMatchPrep: (prepId: Exclude<MatchPrepId, 'none'>) => void;
   startHalftimeMatch: (options?: {
     participatingPlayerIds?: string[];
     targetDifficulty?: number;
@@ -1446,6 +1595,8 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'SELECT_SQUAD_CAMP', payload: { campId } }),
     scoutWeekOpponent: (week) =>
       dispatch({ type: 'SCOUT_WEEK_OPPONENT', payload: { week } }),
+    activateMatchPrep: (prepId) =>
+      dispatch({ type: 'ACTIVATE_MATCH_PREP', payload: { prepId } }),
     startHalftimeMatch: (options) =>
       dispatch({
         type: 'START_HALFTIME_MATCH',

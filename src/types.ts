@@ -67,7 +67,9 @@ export type FacilityId =
   | 'tactical_analysis_suite'
   | 'strength_gym'
   | 'medical_rehab_center'
-  | 'youth_academy';
+  | 'youth_academy'
+  | 'sports_science_lab'
+  | 'championship_war_room';
 
 /**
  * Outfield football player attributes on a 0-100 scale.
@@ -503,6 +505,22 @@ export interface OpponentZoneRatings {
   pace: number;
 }
 
+export type MatchPrepId = 'none' | 'video_brief' | 'cryo_gel' | 'media_hype';
+
+export interface MatchPrepDefinition {
+  id: Exclude<MatchPrepId, 'none'>;
+  title: string;
+  cost: number;
+  emoji: string;
+  summary: string;
+}
+
+export interface BossFixturePerk {
+  id: 'apex_blitz' | 'vanguard_vice' | 'cobra_counter';
+  name: string;
+  summary: string;
+}
+
 export interface WeeklyFixtureDefinition {
   week: number;
   id: string;
@@ -513,6 +531,9 @@ export interface WeeklyFixtureDefinition {
   zoneRatings: OpponentZoneRatings;
   favoredTactic: TacticalStyle;
   recommendedCounter: TacticalStyle;
+  opponentFormation: FormationType;
+  recommendedFormation?: FormationType;
+  bossPerk?: BossFixturePerk;
   description: string;
   gateNote?: string;
   strongZone?: string;
@@ -558,6 +579,10 @@ export interface HalftimeMatchState {
   scaledOpponentZones?: OpponentZoneRatings;
   halftimeMomentum?: string;
   opponentTactic: TacticalStyle;
+  opponentFormation?: FormationType;
+  bossPerkId?: BossFixturePerk['id'];
+  activeMatchPrep?: MatchPrepId;
+  freshBounce?: boolean;
   tactic: TacticalStyle | string;
   formation: FormationType;
   participatingPlayerIds: string[];

@@ -1,4 +1,5 @@
 import {
+  BossFixturePerk,
   CampaignRunEvaluation,
   CampaignStatus,
   CaptainEvent,
@@ -17,6 +18,7 @@ import {
   HalftimeZoneReport,
   isGoalkeeperPlayer,
   LegacyRankGrade,
+  MatchPrepId,
   MatchResult,
   MilestoneConditionType,
   MilestoneRewardPerkType,
@@ -34,6 +36,7 @@ import {
   ROLE_TRAINING_MULTIPLIERS,
   ScheduleTask,
   SquadCampDefinition,
+  SquadCampId,
   StatCheckResult,
   TacticalStyle,
   TaskTargetAttribute,
@@ -375,7 +378,7 @@ export const PLAYER_TRAIT_CATALOG: Record<PlayerTraitId, PlayerTrait> = {
     id: 'clutch_leader',
     name: 'Clutch Leader',
     icon: '👑',
-    summary: '+4% All Zones & +12% Shootout Edge (155+ Captain Aura)',
+    summary: '+4% All Zones & +12% Shootout Edge (105+ Captain Aura)',
   },
 };
 
@@ -419,7 +422,7 @@ export function evaluatePlayerTraits(player: Player): {
       player.captainStats.confidence +
       player.captainStats.passion +
       player.captainStats.charisma;
-    if (auraTotal >= 155) {
+    if (auraTotal >= 105) {
       grant('clutch_leader');
     }
   }
@@ -434,6 +437,314 @@ export function evaluatePlayerTraits(player: Player): {
       traits: [...existing, ...newlyUnlocked],
     },
     newlyUnlocked,
+  };
+}
+
+export interface PlayerTraitProgressItem {
+  trait: PlayerTrait;
+  unlocked: boolean;
+  progressText: string;
+  pct: number;
+}
+
+export function getPlayerTraitProgress(
+  player: Player
+): PlayerTraitProgressItem[] {
+  const items: PlayerTraitProgressItem[] = [];
+
+  if (isGoalkeeperPlayer(player)) {
+    const ref = player.attributes.reflexes;
+    const pos = player.attributes.positioning;
+    const unlocked = hasPlayerTrait(player, 'sweeper_keeper') || (ref >= 42 && pos >= 40);
+    const pct = Math.min(
+      100,
+      Math.round(((Math.min(42, ref) / 42 + Math.min(40, pos) / 40) / 2) * 100)
+    );
+    items.push({
+      trait: PLAYER_TRAIT_CATALOG.sweeper_keeper,
+      unlocked,
+      progressText: `${ref}/42 REF • ${pos}/40 POS`,
+      pct,
+    });
+  } else {
+    const role = normalizePosition(player.position);
+    const { shooting, passing, defending, pace, physical } = player.attributes;
+
+    if (role === 'FWD' || role === 'MID' || shooting >= 30) {
+      items.push({
+        trait: PLAYER_TRAIT_CATALOG.clinical_finisher,
+        unlocked: hasPlayerTrait(player, 'clinical_finisher') || shooting >= 42,
+        progressText: `${shooting}/42 SHO`,
+        pct: Math.min(100, Math.round((shooting / 42) * 100)),
+      });
+    }
+    if (role === 'MID' || role === 'FWD' || passing >= 30) {
+      items.push({
+        trait: PLAYER_TRAIT_CATALOG.deep_playmaker,
+        unlocked: hasPlayerTrait(player, 'deep_playmaker') || passing >= 42,
+        progressText: `${passing}/42 PAS`,
+        pct: Math.min(100, Math.round((passing / 42) * 100)),
+      });
+    }
+    if (role === 'DEF' || role === 'MID' || defending >= 30) {
+      items.push({
+        trait: PLAYER_TRAIT_CATALOG.brick_wall,
+        unlocked: hasPlayerTrait(player, 'brick_wall') || defending >= 42,
+        progressText: `${defending}/42 DEF`,
+        pct: Math.min(100, Math.round((defending / 42) * 100)),
+      });
+    }
+    items.push({
+      trait: PLAYER_TRAIT_CATALOG.turbo_engine,
+      unlocked:
+        hasPlayerTrait(player, 'turbo_engine') || (pace >= 42 && physical >= 38),
+      progressText: `${pace}/42 PAC • ${physical}/38 PHY`,
+      pct: Math.min(
+        100,
+        Math.round(((Math.min(42, pace) / 42 + Math.min(38, physical) / 38) / 2) * 100)
+      ),
+    });
+  }
+
+  if (player.isCaptain && player.captainStats) {
+    const auraTotal =
+      player.captainStats.confidence +
+      player.captainStats.passion +
+      player.captainStats.charisma;
+    items.push({
+      trait: PLAYER_TRAIT_CATALOG.clutch_leader,
+      unlocked: hasPlayerTrait(player, 'clutch_leader') || auraTotal >= 105,
+      progressText: `${auraTotal}/105 Aura`,
+      pct: Math.min(100, Math.round((auraTotal / 105) * 100)),
+    });
+  }
+
+  return items;
+}
+
+export interface CampRolePreview {
+  role: NormalizedRole;
+  campMultiplier: number;
+  tier: 'boost' | 'normal' | 'light' | 'recovery';
+  arrow: '++' | '+' | '·' | '🛌';
+  label: string;
+  targetAttrsLabel: string;
+  outfieldTargets: OutfieldAttributeKey[];
+  gkTargets: GoalkeeperAttributeKey[];
+}
+
+export function getCampRolePreview(
+  campId: SquadCampId,
+  position: PlayerPosition
+): CampRolePreview {
+  const role = normalizePosition(position);
+
+  if (campId === 'camp_recovery') {
+    return {
+      role,
+      campMultiplier: 0,
+      tier: 'recovery',
+      arrow: '🛌',
+      label: '🛌 +50 STA / -35 STR',
+      targetAttrsLabel: 'Recovery',
+      outfieldTargets: [],
+      gkTargets: [],
+    };
+  }
+
+  if (campId === 'camp_attack') {
+    if (role === 'FWD') {
+      return {
+        role,
+        campMultiplier: 1.4,
+        tier: 'boost',
+        arrow: '++',
+        label: '++ 1.4x Big Gain',
+        targetAttrsLabel: 'SHO, PAC',
+        outfieldTargets: ['shooting', 'pace'],
+        gkTargets: [],
+      };
+    }
+    if (role === 'MID') {
+      return {
+        role,
+        campMultiplier: 1.1,
+        tier: 'normal',
+        arrow: '+',
+        label: '+ 1.1x Solid Gain',
+        targetAttrsLabel: 'SHO, PAS',
+        outfieldTargets: ['shooting', 'passing'],
+        gkTargets: [],
+      };
+    }
+    if (role === 'DEF') {
+      return {
+        role,
+        campMultiplier: 0.6,
+        tier: 'light',
+        arrow: '·',
+        label: '· 0.6x Light Gain',
+        targetAttrsLabel: 'PAS, PAC',
+        outfieldTargets: ['passing', 'pace'],
+        gkTargets: [],
+      };
+    }
+    return {
+      role,
+      campMultiplier: 0.6,
+      tier: 'light',
+      arrow: '·',
+      label: '· 0.6x Light Gain',
+      targetAttrsLabel: 'REF, HAN',
+      outfieldTargets: [],
+      gkTargets: ['reflexes', 'handling'],
+    };
+  }
+
+  if (campId === 'camp_defense') {
+    if (role === 'DEF') {
+      return {
+        role,
+        campMultiplier: 1.4,
+        tier: 'boost',
+        arrow: '++',
+        label: '++ 1.4x Big Gain',
+        targetAttrsLabel: 'DEF, PHY',
+        outfieldTargets: ['defending', 'physical'],
+        gkTargets: [],
+      };
+    }
+    if (role === 'GK') {
+      return {
+        role,
+        campMultiplier: 1.35,
+        tier: 'boost',
+        arrow: '++',
+        label: '++ 1.35x Big Gain',
+        targetAttrsLabel: 'POS, AER',
+        outfieldTargets: [],
+        gkTargets: ['positioning', 'aerial'],
+      };
+    }
+    if (role === 'MID') {
+      return {
+        role,
+        campMultiplier: 1.05,
+        tier: 'normal',
+        arrow: '+',
+        label: '+ 1.05x Solid Gain',
+        targetAttrsLabel: 'DEF, PHY',
+        outfieldTargets: ['defending', 'physical'],
+        gkTargets: [],
+      };
+    }
+    return {
+      role,
+      campMultiplier: 0.6,
+      tier: 'light',
+      arrow: '·',
+      label: '· 0.6x Light Gain',
+      targetAttrsLabel: 'PHY, PAC',
+      outfieldTargets: ['physical', 'pace'],
+      gkTargets: [],
+    };
+  }
+
+  if (campId === 'camp_possession_gk') {
+    if (role === 'MID') {
+      return {
+        role,
+        campMultiplier: 1.4,
+        tier: 'boost',
+        arrow: '++',
+        label: '++ 1.4x Big Gain',
+        targetAttrsLabel: 'PAS, PAC',
+        outfieldTargets: ['passing', 'pace'],
+        gkTargets: [],
+      };
+    }
+    if (role === 'GK') {
+      return {
+        role,
+        campMultiplier: 1.4,
+        tier: 'boost',
+        arrow: '++',
+        label: '++ 1.4x Big Gain',
+        targetAttrsLabel: 'REF, HAN',
+        outfieldTargets: [],
+        gkTargets: ['reflexes', 'handling'],
+      };
+    }
+    if (role === 'DEF') {
+      return {
+        role,
+        campMultiplier: 0.95,
+        tier: 'normal',
+        arrow: '+',
+        label: '+ 0.95x Gain',
+        targetAttrsLabel: 'PAS, DEF',
+        outfieldTargets: ['passing', 'defending'],
+        gkTargets: [],
+      };
+    }
+    return {
+      role,
+      campMultiplier: 0.95,
+      tier: 'normal',
+      arrow: '+',
+      label: '+ 0.95x Gain',
+      targetAttrsLabel: 'PAS, PAC',
+      outfieldTargets: ['passing', 'pace'],
+      gkTargets: [],
+    };
+  }
+
+  // camp_scrimmage (Balanced all-round role specialization)
+  if (role === 'FWD') {
+    return {
+      role,
+      campMultiplier: 1.1,
+      tier: 'normal',
+      arrow: '+',
+      label: '+ 1.1x Role Gain',
+      targetAttrsLabel: 'SHO, PAC, PAS',
+      outfieldTargets: ['shooting', 'pace', 'passing'],
+      gkTargets: [],
+    };
+  }
+  if (role === 'MID') {
+    return {
+      role,
+      campMultiplier: 1.1,
+      tier: 'normal',
+      arrow: '+',
+      label: '+ 1.1x Role Gain',
+      targetAttrsLabel: 'PAS, PAC, SHO',
+      outfieldTargets: ['passing', 'pace', 'shooting'],
+      gkTargets: [],
+    };
+  }
+  if (role === 'DEF') {
+    return {
+      role,
+      campMultiplier: 1.1,
+      tier: 'normal',
+      arrow: '+',
+      label: '+ 1.1x Role Gain',
+      targetAttrsLabel: 'DEF, PHY, PAS',
+      outfieldTargets: ['defending', 'physical', 'passing'],
+      gkTargets: [],
+    };
+  }
+  return {
+    role,
+    campMultiplier: 1.1,
+    tier: 'normal',
+    arrow: '+',
+    label: '+ 1.1x Role Gain',
+    targetAttrsLabel: 'REF, POS, HAN',
+    outfieldTargets: [],
+    gkTargets: ['reflexes', 'positioning', 'handling'],
   };
 }
 
@@ -610,6 +921,9 @@ export function computeSquadZonePreview(
   options?: {
     unlockedFacilities?: FacilityId[];
     opponentTactic?: TacticalStyle;
+    opponentFormation?: FormationType;
+    activeMatchPrep?: MatchPrepId;
+    freshBounce?: boolean;
     highTierDemandScale?: number;
   }
 ): SquadZoneRatings {
@@ -689,11 +1003,28 @@ export function computeSquadZonePreview(
   const matchup = options?.opponentTactic
     ? getTacticalMatchupMultiplier(tactic, options.opponentTactic)
     : { attackMult: 1.0, defenseMult: 1.0, label: 'Neutral' };
+  const formationMatchup = getFormationMatchupMultiplier(
+    formation,
+    options?.opponentFormation
+  );
   const tacticalSuiteBonus = options?.unlockedFacilities?.includes(
     'tactical_analysis_suite'
   )
     ? 1.03
     : 1.0;
+  const sportsLabBonus = options?.unlockedFacilities?.includes(
+    'sports_science_lab'
+  )
+    ? 1.04
+    : 1.0;
+  const warRoomBonus = options?.unlockedFacilities?.includes(
+    'championship_war_room'
+  )
+    ? 1.05
+    : 1.0;
+  const videoBriefBonus = options?.activeMatchPrep === 'video_brief' ? 1.05 : 1.0;
+  const freshAttackDefenseBonus = options?.freshBounce ? 1.02 : 1.0;
+  const freshPaceBonus = options?.freshBounce ? 1.04 : 1.0;
 
   const traitAttackMult = team.some(
     (p) => !isGoalkeeperPlayer(p) && hasPlayerTrait(p, 'clinical_finisher')
@@ -714,32 +1045,41 @@ export function computeSquadZonePreview(
   const traitClutchMult =
     captain && hasPlayerTrait(captain, 'clutch_leader') ? 1.04 : 1.0;
 
+  const sharedZoneMult =
+    formationMatchup.multiplier *
+    tacticalSuiteBonus *
+    sportsLabBonus *
+    videoBriefBonus *
+    traitClutchMult;
+
   const attackBonus =
     (tactic === 'Attacking' ? 1.12 : tactic === 'Counter' ? 0.92 : 1.02) *
     formationProfile.attackMult *
     matchup.attackMult *
-    tacticalSuiteBonus *
-    traitAttackMult *
-    traitClutchMult;
+    sharedZoneMult *
+    warRoomBonus *
+    freshAttackDefenseBonus *
+    traitAttackMult;
   const defenseBonus =
     (tactic === 'Attacking' ? 0.89 : tactic === 'Counter' ? 1.1 : 1.02) *
     formationProfile.defenseMult *
     matchup.defenseMult *
-    tacticalSuiteBonus *
+    sharedZoneMult *
+    warRoomBonus *
+    freshAttackDefenseBonus *
     traitDefenseMult *
-    traitKeeperMult *
-    traitClutchMult;
+    traitKeeperMult;
   const midfieldBonus =
     (tactic === 'Attacking' ? 1.01 : tactic === 'Counter' ? 0.91 : 1.04) *
     formationProfile.midfieldMult *
-    tacticalSuiteBonus *
-    traitMidfieldMult *
-    traitClutchMult;
+    sharedZoneMult *
+    traitMidfieldMult;
   const transitionBonus =
     (tactic === 'Counter' ? 1.1 : tactic === 'Attacking' ? 0.96 : 1.02) *
     formationProfile.paceMult *
-    traitPaceMult *
-    traitClutchMult;
+    sharedZoneMult *
+    freshPaceBonus *
+    traitPaceMult;
 
   const activeOutfieldPool = outfielders.length > 0 ? outfielders : team;
   const attackersPool = activeOutfieldPool.filter((p) => {
@@ -836,6 +1176,10 @@ export function estimateMatchWinProbability(
   options?: {
     opponentZones?: OpponentZoneRatings;
     unlockedFacilities?: FacilityId[];
+    opponentFormation?: FormationType;
+    bossPerkId?: BossFixturePerk['id'];
+    activeMatchPrep?: MatchPrepId;
+    freshBounce?: boolean;
   }
 ): {
   winPct: number;
@@ -843,6 +1187,8 @@ export function estimateMatchWinProbability(
   verdictLabel: string;
   teamEffectiveRating: number;
   matchupEdgeLabel: string;
+  formationEdgeLabel?: string;
+  bossPerkTriggeredNote?: string | null;
   hasTacticalAdvantage: boolean;
 } {
   if (team.length === 0) {
@@ -859,6 +1205,9 @@ export function estimateMatchWinProbability(
   const zones = computeSquadZonePreview(team, formation, ourTactic, {
     unlockedFacilities: options?.unlockedFacilities,
     opponentTactic,
+    opponentFormation: options?.opponentFormation,
+    activeMatchPrep: options?.activeMatchPrep,
+    freshBounce: options?.freshBounce,
     highTierDemandScale: expectedOpponentRating >= 50 ? 0.9 : 1.0,
   });
 
@@ -867,8 +1216,32 @@ export function estimateMatchWinProbability(
     : {
         attackMult: 1.0,
         defenseMult: 1.0,
-        label: 'Unscouted Opponent (Pay ¥400 to reveal tactic & zones)',
+        label: 'Unscouted Opponent (Pay ¥400 to reveal tactic & formation)',
       };
+  const formationMatchup = getFormationMatchupMultiplier(
+    formation,
+    options?.opponentFormation
+  );
+
+  const fallbackOppZones: OpponentZoneRatings = options?.opponentZones ?? {
+    attack: expectedOpponentRating,
+    midfield: expectedOpponentRating,
+    defense: expectedOpponentRating,
+    pace: expectedOpponentRating,
+  };
+  const bossCheck = applyBossMatchPerkModifier(
+    fallbackOppZones,
+    options?.bossPerkId,
+    {
+      team,
+      tactic: ourTactic,
+      unlockedFacilities: options?.unlockedFacilities,
+      activeMatchPrep: options?.activeMatchPrep,
+    }
+  );
+  const effectiveExpectedRating = bossCheck.triggeredNote
+    ? expectedOpponentRating + 3
+    : expectedOpponentRating;
 
   const zoneAvg =
     (zones.attack + zones.midfield + zones.defense + zones.pace) / 4;
@@ -876,9 +1249,9 @@ export function estimateMatchWinProbability(
     Math.round(zones.baseTeamRating * 0.45 + zoneAvg * 0.55)
   );
 
-  let ratingDiff = teamEffectiveRating - expectedOpponentRating;
+  let ratingDiff = teamEffectiveRating - effectiveExpectedRating;
   if (options?.opponentZones) {
-    const oz = options.opponentZones;
+    const oz = bossCheck.adjustedOppZones;
     const zoneEdgeAvg =
       (zones.attack -
         oz.defense +
@@ -906,7 +1279,12 @@ export function estimateMatchWinProbability(
     verdictLabel,
     teamEffectiveRating,
     matchupEdgeLabel: matchup.label,
-    hasTacticalAdvantage: matchup.attackMult > 1.0,
+    formationEdgeLabel: options?.opponentFormation
+      ? formationMatchup.edgeLabel
+      : undefined,
+    bossPerkTriggeredNote: bossCheck.triggeredNote,
+    hasTacticalAdvantage:
+      matchup.attackMult > 1.0 || formationMatchup.hasAdvantage,
   };
 }
 
@@ -1278,6 +1656,8 @@ export function calculatePlayerPositionalRating(player: Player): number {
       ? 0.72
       : player.status.stamina < 45
       ? 0.85
+      : player.status.stamina < 58 || player.status.stress > 60
+      ? 0.93
       : player.status.stamina >= 75 && player.status.stress <= 35
       ? 1.06
       : 1.0;
@@ -1383,6 +1763,16 @@ export function getSquadEnergySummary(players: Player[]): {
       tone: 'amber',
     };
   }
+  if (avgStamina < 58 || minStamina < 48 || avgStress > 60) {
+    return {
+      avgStamina,
+      minStamina,
+      avgStress,
+      matchConditionLabel: 'Tired (-7% Match OVR)',
+      matchModifierPct: -7,
+      tone: 'amber',
+    };
+  }
   if (avgStamina >= 75 && avgStress <= 35) {
     return {
       avgStamina,
@@ -1451,6 +1841,7 @@ export function processSquadCampWeek(
   );
   const hasStrengthGym = unlockedFacilities.includes('strength_gym');
   const hasPitch2 = unlockedFacilities.includes('training_pitch_2');
+  const hasSportsScienceLab = unlockedFacilities.includes('sports_science_lab');
 
   const captainBuffs = getCaptainBuffMultipliers(players);
   const summaryLogs: string[] = [];
@@ -1485,7 +1876,7 @@ export function processSquadCampWeek(
       const candidate: Player = {
         ...p,
         status: nextStatus,
-        form: clamp0To100(p.form + 6),
+        form: clamp0To100(p.form + 8),
         isBurnedOut: p.isBurnedOut ? !recoveredBurnout : false,
         injuryWeeksRemaining: nextInjury,
         injuryReason: nextInjury > 0 ? p.injuryReason : undefined,
@@ -1495,7 +1886,12 @@ export function processSquadCampWeek(
             : derivePlayerMood(nextStatus),
       };
       const { updatedPlayer, newlyUnlocked } = evaluatePlayerTraits(candidate);
-      const gains: string[] = [`+${staminaGain} STA`, `-${stressDrop} STR`];
+      const gains: string[] = [
+        `+${staminaGain} STA`,
+        `-${stressDrop} STR`,
+        '+8 Form',
+        '⚡ Fresh Bounce',
+      ];
       if (prevInjury > 0 && nextInjury === 0) {
         gains.push('🩹 Injury Cleared');
       }
@@ -1515,7 +1911,7 @@ export function processSquadCampWeek(
     });
 
     summaryLogs.push(
-      `[RECOVERY WEEK] Full Squad Recovery completed! +${staminaGain} Energy, -${stressDrop} Stress, +8 Morale across all 5 starters.`
+      `[RECOVERY WEEK] Full Squad Recovery completed! +${staminaGain} Energy, -${stressDrop} Stress, +8 Form & ⚡ Fresh Bounce armed for Sunday (+4% Pace, +2% ATK/DEF).`
     );
 
     return {
@@ -1647,23 +2043,58 @@ export function processSquadCampWeek(
     const variance = 0.88 + rng() * 0.24;
     const baseGain = 4.6 * breakthroughMult * variance;
 
+    const rolePreview = getCampRolePreview(camp.id, p.position);
+    let facMult = 1.0 + (hasSportsScienceLab ? 0.1 : 0);
+    if (camp.id === 'camp_attack') {
+      if (hasPitch2) facMult += 0.1;
+      if (hasStrengthGym) facMult += 0.08;
+    } else if (camp.id === 'camp_defense') {
+      if (hasStrengthGym) facMult += 0.15;
+    } else if (camp.id === 'camp_possession_gk') {
+      if (hasTacticalSuite) facMult += 0.15;
+    } else if (camp.id === 'camp_scrimmage') {
+      if (hasPitch2) facMult += 0.1;
+    }
+
+    let nextCaptainStats = p.captainStats;
+    if (p.isCaptain && p.captainStats) {
+      if (camp.id === 'camp_attack') {
+        nextCaptainStats = {
+          ...p.captainStats,
+          confidence: clamp0To100(p.captainStats.confidence + 3),
+        };
+      } else if (camp.id === 'camp_defense') {
+        nextCaptainStats = {
+          ...p.captainStats,
+          passion: clamp0To100(p.captainStats.passion + 3),
+        };
+      } else if (camp.id === 'camp_possession_gk') {
+        nextCaptainStats = {
+          ...p.captainStats,
+          charisma: clamp0To100(p.captainStats.charisma + 3),
+        };
+      } else if (camp.id === 'camp_scrimmage') {
+        nextCaptainStats = {
+          confidence: clamp0To100(p.captainStats.confidence + 3),
+          passion: clamp0To100(p.captainStats.passion + 3),
+          charisma: clamp0To100(p.captainStats.charisma + 2),
+        };
+      }
+    }
+
     if (isGoalkeeperPlayer(p)) {
       const gkAttrs: GoalkeeperAttributes = { ...p.attributes };
-      const keysToBoost: GoalkeeperAttributeKey[] =
-        camp.id === 'camp_possession_gk'
-          ? ['reflexes', 'handling']
-          : camp.id === 'camp_defense'
-          ? ['positioning', 'aerial']
-          : camp.id === 'camp_scrimmage'
-          ? ['reflexes', 'positioning']
-          : ['reflexes', 'handling'];
+      const keysToBoost =
+        rolePreview.gkTargets.length > 0
+          ? rolePreview.gkTargets
+          : (['reflexes', 'handling'] as GoalkeeperAttributeKey[]);
       const gainLogs: string[] = [];
       for (const k of keysToBoost) {
         const gain = calculateDiminishingStatGain(
-          baseGain * (camp.id === 'camp_attack' ? 0.6 : 1.0),
+          baseGain * facMult * (keysToBoost.length >= 3 ? 0.65 : 0.9),
           gkAttrs[k],
           capStatMult,
-          1.15
+          rolePreview.campMultiplier
         );
         if (gain > 0) {
           gkAttrs[k] = clamp0To100(gkAttrs[k] + gain);
@@ -1671,11 +2102,12 @@ export function processSquadCampWeek(
         }
       }
       summaryLogs.push(
-        `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (GK): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
+        `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (GK • ${rolePreview.campMultiplier}x): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
       );
       const candidate: Player = {
         ...p,
         attributes: gkAttrs,
+        captainStats: nextCaptainStats,
         status: nextStatus,
         form: clamp0To100(p.form + (isBreakthrough ? 4 : 1)),
         isBurnedOut: hitBurnout || p.isBurnedOut,
@@ -1700,50 +2132,18 @@ export function processSquadCampWeek(
     }
 
     const attrs: OutfieldAttributes = { ...p.attributes };
-    const role = normalizePosition(p.position);
-    let targetKeys: OutfieldAttributeKey[] = ['passing'];
-    let facMult = 1.0;
-
-    if (camp.id === 'camp_attack') {
-      targetKeys =
-        role === 'FWD'
-          ? ['shooting', 'pace']
-          : role === 'MID'
-          ? ['shooting', 'passing']
-          : ['defending', 'passing'];
-      if (hasPitch2) facMult += 0.1;
-      if (hasStrengthGym) facMult += 0.08;
-    } else if (camp.id === 'camp_defense') {
-      targetKeys =
-        role === 'DEF'
-          ? ['defending', 'physical']
-          : ['physical', 'pace'];
-      if (hasStrengthGym) facMult += 0.15;
-    } else if (camp.id === 'camp_possession_gk') {
-      targetKeys =
-        role === 'DEF'
-          ? ['passing', 'defending']
-          : ['passing', 'pace'];
-      if (hasTacticalSuite) facMult += 0.15;
-    } else {
-      // camp_scrimmage
-      targetKeys =
-        role === 'FWD'
-          ? ['shooting', 'pace', 'passing']
-          : role === 'DEF'
-          ? ['defending', 'physical', 'passing']
-          : ['passing', 'pace', 'defending'];
-      if (hasPitch2) facMult += 0.1;
-    }
+    const targetKeys =
+      rolePreview.outfieldTargets.length > 0
+        ? rolePreview.outfieldTargets
+        : (['passing'] as OutfieldAttributeKey[]);
 
     const gainLogs: string[] = [];
     for (const k of targetKeys) {
-      const affinity = getRoleTrainingMultiplier(p.position, k);
       const gain = calculateDiminishingStatGain(
         baseGain * facMult * (targetKeys.length >= 3 ? 0.65 : 0.9),
         attrs[k],
         capStatMult,
-        affinity
+        rolePreview.campMultiplier
       );
       if (gain > 0) {
         attrs[k] = clamp0To100(attrs[k] + gain);
@@ -1751,17 +2151,8 @@ export function processSquadCampWeek(
       }
     }
 
-    let nextCaptainStats = p.captainStats;
-    if (p.isCaptain && p.captainStats && camp.id === 'camp_scrimmage') {
-      nextCaptainStats = {
-        confidence: clamp0To100(p.captainStats.confidence + 3),
-        passion: clamp0To100(p.captainStats.passion + 3),
-        charisma: clamp0To100(p.captainStats.charisma + 2),
-      };
-    }
-
     summaryLogs.push(
-      `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (${p.position}): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
+      `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (${p.position} • ${rolePreview.campMultiplier}x): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
     );
 
     const candidate: Player = {
@@ -2699,6 +3090,171 @@ export function getTacticalMatchupMultiplier(
   };
 }
 
+export interface FormationMatchupResult {
+  multiplier: number;
+  edgeLabel: string;
+  hasAdvantage: boolean;
+  hasDisadvantage: boolean;
+}
+
+const FORMATION_COUNTER_TABLE: Partial<
+  Record<
+    FormationType,
+    Partial<Record<FormationType, { mult: number; reason: string }>>
+  >
+> = {
+  '1-1-2-1': {
+    '1-2-2': {
+      mult: 1.07,
+      reason: 'Diamond 1-1-2-1 overruns 1-2-2 Box midfield (+7%)',
+    },
+    '1-2-1-1': {
+      mult: 0.95,
+      reason: 'Pyramid 1-2-1-1 screens 1-1-2-1 solo striker (-5%)',
+    },
+    '1-1-1-2': {
+      mult: 0.96,
+      reason: 'High-press twin FWDs isolate 1-1-2-1 backline (-4%)',
+    },
+  },
+  '1-2-1-1': {
+    '1-1-2-1': {
+      mult: 1.07,
+      reason: 'Pyramid twin DEFs absorb 1-1-2-1 Diamond (+7%)',
+    },
+    '1-1-1-2': {
+      mult: 1.06,
+      reason: 'Pyramid double pivot absorbs 1-1-1-2 twin press (+6%)',
+    },
+    '1-2-2': {
+      mult: 0.95,
+      reason: 'Box wide strikers stretch 1-2-1-1 single pivot (-5%)',
+    },
+  },
+  '1-2-2': {
+    '1-2-1-1': {
+      mult: 1.07,
+      reason: 'Box twin strikers stretch 1-2-1-1 Pyramid (+7%)',
+    },
+    '1-1-2-1': {
+      mult: 0.95,
+      reason: 'Diamond midfield overloads 1-2-2 Box (-5%)',
+    },
+    '1-1-1-2': {
+      mult: 0.95,
+      reason: 'High-press 1-1-1-2 pins 1-2-2 defenders (-5%)',
+    },
+  },
+  '1-1-1-2': {
+    '1-2-2': {
+      mult: 1.06,
+      reason: 'High-press 1-1-1-2 pins 1-2-2 defenders deep (+6%)',
+    },
+    '1-1-2-1': {
+      mult: 1.05,
+      reason: 'High-press twin FWDs isolate 1-1-2-1 solo DEF (+5%)',
+    },
+    '1-2-1-1': {
+      mult: 0.95,
+      reason: 'Pyramid twin DEFs stonewall 1-1-1-2 forwards (-5%)',
+    },
+  },
+};
+
+export function getFormationMatchupMultiplier(
+  ourFormation: FormationType,
+  opponentFormation?: FormationType
+): FormationMatchupResult {
+  if (!opponentFormation || ourFormation === opponentFormation) {
+    return {
+      multiplier: 1.0,
+      edgeLabel: opponentFormation
+        ? `Mirror Shape (${ourFormation} vs ${opponentFormation} — Neutral)`
+        : 'Formation Edge Neutral',
+      hasAdvantage: false,
+      hasDisadvantage: false,
+    };
+  }
+  const hit = FORMATION_COUNTER_TABLE[ourFormation]?.[opponentFormation];
+  if (!hit) {
+    return {
+      multiplier: 1.0,
+      edgeLabel: `Shape Matchup (${ourFormation} vs ${opponentFormation} — Neutral)`,
+      hasAdvantage: false,
+      hasDisadvantage: false,
+    };
+  }
+  return {
+    multiplier: hit.mult,
+    edgeLabel: hit.reason,
+    hasAdvantage: hit.mult > 1.0,
+    hasDisadvantage: hit.mult < 1.0,
+  };
+}
+
+export function applyBossMatchPerkModifier(
+  oppZones: OpponentZoneRatings,
+  bossPerkId: BossFixturePerk['id'] | undefined,
+  context: {
+    team: Player[];
+    tactic: TacticalStyle | string;
+    unlockedFacilities?: FacilityId[];
+    activeMatchPrep?: MatchPrepId;
+  }
+): {
+  adjustedOppZones: OpponentZoneRatings;
+  triggeredNote: string | null;
+} {
+  if (!bossPerkId) {
+    return { adjustedOppZones: oppZones, triggeredNote: null };
+  }
+  if (bossPerkId === 'apex_blitz') {
+    const avgStam =
+      context.team.length > 0
+        ? context.team.reduce((s, p) => s + p.status.stamina, 0) /
+          context.team.length
+        : 100;
+    if (avgStam < 55) {
+      return {
+        adjustedOppZones: {
+          ...oppZones,
+          attack: clamp0To100(Math.round(oppZones.attack * 1.06)),
+          pace: clamp0To100(Math.round(oppZones.pace * 1.06)),
+        },
+        triggeredNote:
+          'Apex Stamina Blitz triggered! Low squad stamina (<55%) let Apex United surge (+6% Opp Attack & Pace).',
+      };
+    }
+  }
+  if (bossPerkId === 'vanguard_vice') {
+    const hasPrepCoverage =
+      context.unlockedFacilities?.includes('tactical_analysis_suite') ||
+      context.activeMatchPrep === 'video_brief';
+    if (context.tactic === 'Balanced' && !hasPrepCoverage) {
+      return {
+        adjustedOppZones: {
+          ...oppZones,
+          midfield: clamp0To100(Math.round(oppZones.midfield * 1.06)),
+        },
+        triggeredNote:
+          'Vanguard Tactical Vice triggered! Balanced without Tactical Suite/Video Brief ceded +6% Opp Midfield.',
+      };
+    }
+  }
+  if (bossPerkId === 'cobra_counter' && context.tactic === 'Attacking') {
+    return {
+      adjustedOppZones: {
+        ...oppZones,
+        attack: clamp0To100(Math.round(oppZones.attack * 1.08)),
+        pace: clamp0To100(Math.round(oppZones.pace * 1.08)),
+      },
+      triggeredNote:
+        'Cobra Counter Trap triggered! Attacking walked into Real Crown counters (+8% Opp Attack & Pace).',
+    };
+  }
+  return { adjustedOppZones: oppZones, triggeredNote: null };
+}
+
 /**
  * 2. simulateMatch
  * 5-a-side Tactical Football Match Engine:
@@ -2743,14 +3299,32 @@ function evaluatePhaseMatchup(
   options?: {
     unlockedFacilities?: FacilityId[];
     phaseMultiplier?: number;
+    opponentFormation?: FormationType;
+    bossPerkId?: BossFixturePerk['id'];
+    activeMatchPrep?: MatchPrepId;
+    freshBounce?: boolean;
   }
 ) {
+  const bossPerk = applyBossMatchPerkModifier(oppZones, options?.bossPerkId, {
+    team,
+    tactic,
+    unlockedFacilities: options?.unlockedFacilities,
+    activeMatchPrep: options?.activeMatchPrep,
+  });
+  const effectiveOppZones = bossPerk.adjustedOppZones;
   const oppOverall = Math.round(
-    (oppZones.attack + oppZones.midfield + oppZones.defense + oppZones.pace) / 4
+    (effectiveOppZones.attack +
+      effectiveOppZones.midfield +
+      effectiveOppZones.defense +
+      effectiveOppZones.pace) /
+      4
   );
   const basePreview = computeSquadZonePreview(team, formation, tactic, {
     unlockedFacilities: options?.unlockedFacilities,
     opponentTactic,
+    opponentFormation: options?.opponentFormation,
+    activeMatchPrep: options?.activeMatchPrep,
+    freshBounce: options?.freshBounce,
     highTierDemandScale: oppOverall >= 50 ? 0.9 : 1.0,
   });
 
@@ -2771,30 +3345,30 @@ function evaluatePhaseMatchup(
   const statChecks: StatCheckResult[] = [
     {
       attribute: 'passing',
-      requiredValue: oppZones.midfield,
+      requiredValue: effectiveOppZones.midfield,
       actualValue: midfieldRating,
-      passed: midfieldRating >= oppZones.midfield,
+      passed: midfieldRating >= effectiveOppZones.midfield,
       label: 'Midfield Progression & Possession Battle',
     },
     {
       attribute: 'shooting',
-      requiredValue: oppZones.defense,
+      requiredValue: effectiveOppZones.defense,
       actualValue: attackRating,
-      passed: attackRating >= oppZones.defense,
+      passed: attackRating >= effectiveOppZones.defense,
       label: 'Final-Third Clinical Finishing',
     },
     {
       attribute: 'defending',
-      requiredValue: oppZones.attack,
+      requiredValue: effectiveOppZones.attack,
       actualValue: defenseRating,
-      passed: defenseRating >= oppZones.attack,
+      passed: defenseRating >= effectiveOppZones.attack,
       label: 'Defensive Shape & Goalkeeper Reflexes',
     },
     {
       attribute: 'pace',
-      requiredValue: oppZones.pace,
+      requiredValue: effectiveOppZones.pace,
       actualValue: pressingRating,
-      passed: pressingRating >= oppZones.pace,
+      passed: pressingRating >= effectiveOppZones.pace,
       label: 'Transition Pace & High-Press Duels',
     },
   ];
@@ -2818,9 +3392,13 @@ function evaluatePhaseMatchup(
     (0.95 + (matchVariance - 1) * 0.5);
 
   const oppDefenseWall =
-    oppZones.defense * 0.65 + oppZones.midfield * 0.2 + oppZones.pace * 0.15;
+    effectiveOppZones.defense * 0.65 +
+    effectiveOppZones.midfield * 0.2 +
+    effectiveOppZones.pace * 0.15;
   const oppAttackThreat =
-    oppZones.attack * 0.65 + oppZones.pace * 0.2 + oppZones.midfield * 0.15;
+    effectiveOppZones.attack * 0.65 +
+    effectiveOppZones.pace * 0.2 +
+    effectiveOppZones.midfield * 0.15;
 
   const attackDiff = compositeAttack - oppDefenseWall;
   const defenseDiff = oppAttackThreat - compositeDefense;
@@ -2839,6 +3417,10 @@ function evaluatePhaseMatchup(
   );
 
   const matchup = getTacticalMatchupMultiplier(tactic, opponentTactic);
+  const formationMatchup = getFormationMatchupMultiplier(
+    formation,
+    options?.opponentFormation
+  );
   return {
     ...basePreview,
     midfieldRating,
@@ -2850,6 +3432,9 @@ function evaluatePhaseMatchup(
     lambdaFor,
     lambdaAgainst,
     matchup,
+    formationMatchup,
+    effectiveOppZones,
+    bossPerkTriggeredNote: bossPerk.triggeredNote,
     oppOverall,
   };
 }
@@ -3104,6 +3689,10 @@ export function simulateMatch(
     week?: number;
     formation?: FormationType;
     opponentTactic?: TacticalStyle;
+    opponentFormation?: FormationType;
+    bossPerkId?: BossFixturePerk['id'];
+    activeMatchPrep?: MatchPrepId;
+    freshBounce?: boolean;
     opponentZones?: OpponentZoneRatings;
     unlockedFacilities?: FacilityId[];
     disableWeekScaling?: boolean;
@@ -3179,7 +3768,13 @@ export function simulateMatch(
     opponentTactic,
     matchVariance,
     rng,
-    { unlockedFacilities: options?.unlockedFacilities }
+    {
+      unlockedFacilities: options?.unlockedFacilities,
+      opponentFormation: options?.opponentFormation,
+      bossPerkId: options?.bossPerkId,
+      activeMatchPrep: options?.activeMatchPrep,
+      freshBounce: options?.freshBounce,
+    }
   );
 
   const goalsFor = samplePoisson(phase.lambdaFor, rng);
@@ -3192,6 +3787,9 @@ export function simulateMatch(
     hasTrueKeeperInGoal,
     synergyNote,
     matchup,
+    formationMatchup,
+    effectiveOppZones,
+    bossPerkTriggeredNote,
     statChecks,
     midfieldRating,
     defenseRating,
@@ -3202,9 +3800,20 @@ export function simulateMatch(
   } = phase;
 
   const logMessages: string[] = [];
+  const formSuffix = options?.opponentFormation
+    ? ` | ${formationMatchup.edgeLabel}`
+    : '';
   logMessages.push(
-    `01' - Kickoff! 5-a-side unit lines up in a ${formation} (${tactic} vs Opp ${opponentTactic} — ${matchup.label}, Team Rating ${baseTeamRating}, Synergy: ${synergyNote}) against ${eventName} (Scaled Opponent Rating ${scaledOpponentRating}).`
+    `01' - Kickoff! 5-a-side unit lines up in a ${formation} (${tactic} vs Opp ${opponentTactic} — ${matchup.label}${formSuffix}, Team Rating ${baseTeamRating}, Synergy: ${synergyNote}) against ${eventName} (Scaled Opponent Rating ${scaledOpponentRating}).`
   );
+  if (bossPerkTriggeredNote) {
+    logMessages.push(`03' - [BOSS PERK ALERT] ${bossPerkTriggeredNote}`);
+  }
+  if (options?.freshBounce) {
+    logMessages.push(
+      `04' - ⚡ FRESH BOUNCE: Rested legs fly out of the tunnel (+4% Pace, +2% Attack & Defense)!`
+    );
+  }
 
   if (!hasTrueKeeperInGoal) {
     logMessages.push(
@@ -3214,11 +3823,11 @@ export function simulateMatch(
 
   if (statChecks[0]!.passed) {
     logMessages.push(
-      `14' - Midfield battle won! ${playmaker.name} dictates the tempo with crisp one-touch distribution (${midfieldRating} vs ${scaledZones.midfield}).`
+      `14' - Midfield battle won! ${playmaker.name} dictates the tempo with crisp one-touch distribution (${midfieldRating} vs ${effectiveOppZones.midfield}).`
     );
   } else {
     logMessages.push(
-      `14' - Midfield overrun! The opposition press forces ${playmaker.name} into hurried clearances (${midfieldRating} vs ${scaledZones.midfield}).`
+      `14' - Midfield overrun! The opposition press forces ${playmaker.name} into hurried clearances (${midfieldRating} vs ${effectiveOppZones.midfield}).`
     );
   }
 
@@ -3236,7 +3845,7 @@ export function simulateMatch(
     logMessages.push(
       `52' - Rock-solid defending! ${defender.name} times a crucial block, backed up by elite reflex saves from ${
         playerInGoal?.name ?? 'the keeper'
-      } (Def/GK Check ${defenseRating} vs ${scaledZones.attack}).`
+      } (Def/GK Check ${defenseRating} vs ${effectiveOppZones.attack}).`
     );
   } else if (goalsAgainst >= 1) {
     logMessages.push(
@@ -3352,6 +3961,10 @@ export function simulateFirstHalf(
     week?: number;
     formation?: FormationType;
     opponentTactic?: TacticalStyle;
+    opponentFormation?: FormationType;
+    bossPerkId?: BossFixturePerk['id'];
+    activeMatchPrep?: MatchPrepId;
+    freshBounce?: boolean;
     opponentZones?: OpponentZoneRatings;
     unlockedFacilities?: FacilityId[];
     disableWeekScaling?: boolean;
@@ -3390,7 +4003,13 @@ export function simulateFirstHalf(
     opponentTactic,
     matchVariance,
     rng,
-    { unlockedFacilities: options?.unlockedFacilities }
+    {
+      unlockedFacilities: options?.unlockedFacilities,
+      opponentFormation: options?.opponentFormation,
+      bossPerkId: options?.bossPerkId,
+      activeMatchPrep: options?.activeMatchPrep,
+      freshBounce: options?.freshBounce,
+    }
   );
 
   // Genuine 1st-Half (45') Poisson goal sampling (0.5x full-match xG)
@@ -3448,10 +4067,22 @@ export function simulateFirstHalf(
       : 'All square at halftime — subtle tactical edges decide the 2nd half.';
 
   const firstHalfLogs = [
-    `01' - Kickoff! ${formation} (${tactic} vs ${opponentTactic}) vs ${eventName} (Scaled ~${scaledOpponentRating} OVR).`,
+    `01' - Kickoff! ${formation} (${tactic} vs ${opponentTactic}${
+      options?.opponentFormation
+        ? ` | ${firstHalfPhase.formationMatchup.edgeLabel}`
+        : ''
+    }) vs ${eventName} (Scaled ~${scaledOpponentRating} OVR).`,
+    ...(firstHalfPhase.bossPerkTriggeredNote
+      ? [`03' - [BOSS PERK ALERT] ${firstHalfPhase.bossPerkTriggeredNote}`]
+      : []),
+    ...(options?.freshBounce
+      ? [
+          `04' - ⚡ FRESH BOUNCE: Rested squad speed boost active (+4% Pace, +2% ATK/DEF)!`,
+        ]
+      : []),
     firstHalfPhase.statChecks[0]!.passed
-      ? `14' - Midfield edge won by ${firstHalfPhase.playmaker.name} (${firstHalfPhase.midfieldRating} vs ${scaledOpponentZones.midfield}).`
-      : `14' - Tight midfield press forces ${firstHalfPhase.playmaker.name} deep (${firstHalfPhase.midfieldRating} vs ${scaledOpponentZones.midfield}).`,
+      ? `14' - Midfield edge won by ${firstHalfPhase.playmaker.name} (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`
+      : `14' - Tight midfield press forces ${firstHalfPhase.playmaker.name} deep (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`,
     halftimeGoalsFor > 0
       ? `29' - GOAL! ${firstHalfPhase.forward.name} finishes a crisp first-half move! (${halftimeGoalsFor}-${halftimeGoalsAgainst})`
       : `34' - First-half chances traded carefully as both keepers stay sharp.`,
@@ -3466,6 +4097,10 @@ export function simulateFirstHalf(
     scaledOpponentZones,
     halftimeMomentum,
     opponentTactic,
+    opponentFormation: options?.opponentFormation,
+    bossPerkId: options?.bossPerkId,
+    activeMatchPrep: options?.activeMatchPrep,
+    freshBounce: options?.freshBounce,
     tactic,
     formation,
     participatingPlayerIds: team.map((p) => p.id),
@@ -3536,6 +4171,10 @@ export function resolveSecondHalf(
     {
       unlockedFacilities: options?.unlockedFacilities,
       phaseMultiplier,
+      opponentFormation: halftime.opponentFormation,
+      bossPerkId: halftime.bossPerkId,
+      activeMatchPrep: halftime.activeMatchPrep,
+      freshBounce: halftime.freshBounce,
     }
   );
 
@@ -3610,6 +4249,9 @@ export function resolveSecondHalf(
     logMessages: [
       ...halftime.firstHalfLogs,
       halftimeCallLog,
+      ...(secondHalfPhase.bossPerkTriggeredNote
+        ? [`47' - [BOSS PERK ALERT] ${secondHalfPhase.bossPerkTriggeredNote}`]
+        : []),
       secondHalfSummaryLog,
       ...(penaltyLog ? [penaltyLog] : []),
       fullTimeLog,

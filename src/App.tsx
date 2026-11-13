@@ -27,16 +27,20 @@ import {
   estimateMatchWinProbability,
   evaluateCampaignRun,
   evaluateTacticalSynergy,
+  getCampRolePreview,
   getCaptainBuffMultipliers,
   getCaptainRallyBoostMultiplier,
+  getFormationMatchupMultiplier,
   getFormationProfile,
   getPlayerConditionSummary,
+  getPlayerTraitProgress,
   getSquadEnergySummary,
   normalizePosition,
 } from './simulationEngine';
 import {
   FACILITY_CATALOG,
   getScheduledFixtureForWeek,
+  MATCH_PREP_OPTIONS,
   SEASON_FIXTURE_CALENDAR,
   SQUAD_CAMP_OPTIONS,
 } from './mockData';
@@ -50,7 +54,7 @@ import {
   type TacticalStyle,
 } from './types';
 
-type ActiveTab = 'dashboard' | 'roster' | 'schedule' | 'matches';
+type ActiveTab = 'dashboard' | 'roster' | 'schedule' | 'matches' | 'club';
 
 const FORMATIONS: { id: FormationType; label: string }[] = [
   { id: '1-2-2', label: '1-2-2 (1 GK, 2 DEF, 2 FWD)' },
@@ -160,6 +164,7 @@ export default function App() {
     selectSquadCamp,
     runWeeklyCamp,
     scoutWeekOpponent,
+    activateMatchPrep,
     startHalftimeMatch,
     finishHalftimeMatch,
     completeWeekTurn,
@@ -190,6 +195,8 @@ export default function App() {
     lastCampOutcome,
     scoutedWeeks,
     halftimeState,
+    activeMatchPrep,
+    freshBounceActive,
     team,
     matchHistory,
     weeklySummaryLogs,
@@ -231,6 +238,14 @@ export default function App() {
   const totalFans = team.players.reduce((sum, p) => sum + p.fanbase, 0);
   const latestMatch = matchHistory[0];
   const captainBuffs = getCaptainBuffMultipliers(team.players);
+
+  const handleRestartGame = () => {
+    resetGame();
+    setHalftimeTactic('Balanced');
+    setHalftimeFormation('1-2-2');
+    setHalftimeRally(false);
+    setActiveTab('dashboard');
+  };
   const activeCaptain = captainBuffs.captain;
 
   const toggleLineupMember = (playerId: string) => {
@@ -252,6 +267,7 @@ export default function App() {
     { id: 'roster', label: '5-a-Side Squad & Captain', icon: Users },
     { id: 'schedule', label: 'Training Planner', icon: Calendar },
     { id: 'matches', label: '5v5 Match Engine', icon: Swords },
+    { id: 'club', label: 'Club & Facilities', icon: Sparkles },
   ];
 
   return (
@@ -325,67 +341,21 @@ export default function App() {
             {isCampaignOver ? (
               <button
                 type="button"
-                onClick={resetGame}
+                onClick={handleRestartGame}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-500/20 cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
                 Start New Season
               </button>
-            ) : !hasPlayedMatchThisWeek ? (
-              <div className="flex items-center gap-2">
-                {!hasRunCampThisWeek && (
-                  <button
-                    type="button"
-                    onClick={runWeeklyCamp}
-                    title="Execute Mon–Fri Squad Camp before Sunday kickoff"
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Run Camp
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!halftimeState) {
-                      setHalftimeTactic(team.tacticalStyle);
-                      setHalftimeFormation(team.formation);
-                      setHalftimeRally(false);
-                      startHalftimeMatch({
-                        participatingPlayerIds: selectedLineupIds,
-                      });
-                    }
-                    setActiveTab('matches');
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-xs sm:text-sm shadow-lg shadow-amber-500/20 active:scale-[0.98] transition cursor-pointer"
-                >
-                  <Swords className="w-4 h-4" />
-                  {halftimeState
-                    ? `Resume Halftime (Wk ${displayWeek})`
-                    : `Play Wk ${displayWeek} Match`}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => completeWeekTurn(selectedLineupIds)}
-                  title="Runs weekday training (if not done), simulates this week's official match, and advances week"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs transition cursor-pointer"
-                >
-                  <FastForward className="w-3.5 h-3.5 text-emerald-400" />
-                  Sim Full Week
-                </button>
-              </div>
             ) : (
               <button
                 type="button"
-                onClick={() => completeWeekTurn(selectedLineupIds)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition cursor-pointer"
+                onClick={handleRestartGame}
+                title="Restart Campaign (Debug Reset)"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/90 hover:bg-rose-950/70 border border-slate-700 hover:border-rose-500/60 text-slate-300 hover:text-rose-200 font-semibold text-xs transition cursor-pointer"
               >
-                <FastForward className="w-4 h-4" />
-                {displayWeek >= seasonLength
-                  ? 'Finish Season & View Rank →'
-                  : hasRunCampThisWeek
-                  ? `Advance to Wk ${displayWeek + 1} →`
-                  : `Run Camp & Advance → Wk ${displayWeek + 1}`}
+                <RotateCcw className="w-3.5 h-3.5" />
+                Restart
               </button>
             )}
           </div>
@@ -451,123 +421,6 @@ export default function App() {
                 }}
               />
             </div>
-          </div>
-
-          {/* Captaincy Aura Card in Sidebar */}
-          {activeCaptain && activeCaptain.captainStats && (
-            <div className="bg-gradient-to-b from-amber-950/30 to-slate-900 border border-amber-500/30 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center gap-2 text-amber-300 font-bold text-xs uppercase tracking-wider">
-                <Crown className="w-4 h-4 text-amber-400" />
-                <span>Captain Aura: {activeCaptain.name}</span>
-              </div>
-              <div className="space-y-1.5 text-xs font-mono">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">
-                    Confidence ({activeCaptain.captainStats.confidence}):
-                  </span>
-                  <span className="text-emerald-400 font-bold">
-                    +{Math.round((captainBuffs.statGainMultiplier - 1) * 100)}% Gain
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">
-                    Passion ({activeCaptain.captainStats.passion}):
-                  </span>
-                  <span className="text-sky-400 font-bold">
-                    -{Math.round((1 - captainBuffs.staminaLossFactor) * 100)}% Stam Loss
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">
-                    Charisma ({activeCaptain.captainStats.charisma}):
-                  </span>
-                  <span className="text-purple-400 font-bold">
-                    -{Math.round((1 - captainBuffs.stressGainFactor) * 100)}% Stress
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Tactical Setup Panel in Sidebar */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                5-a-Side Tactics
-              </span>
-              <button
-                type="button"
-                onClick={resetGame}
-                title="Reset Season"
-                className="text-xs text-slate-400 hover:text-rose-400 flex items-center gap-1 cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label
-                htmlFor="sidebar-formation"
-                className="text-xs text-slate-400 block"
-              >
-                5-a-Side Formation
-              </label>
-              <select
-                id="sidebar-formation"
-                value={team.formation}
-                onChange={(e) =>
-                  setTactics({ formation: e.target.value as FormationType })
-                }
-                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs font-bold text-white"
-              >
-                {FORMATIONS.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label
-                htmlFor="sidebar-tactic"
-                className="text-xs text-slate-400 block"
-              >
-                Tactical Style
-              </label>
-              <select
-                id="sidebar-tactic"
-                value={team.tacticalStyle}
-                onChange={(e) =>
-                  setTactics({ tacticalStyle: e.target.value as TacticalStyle })
-                }
-                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-300"
-              >
-                {TACTICS.map((t) => (
-                  <option key={t} value={t}>
-                    {t} Style
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {!isCampaignOver && (
-              <button
-                type="button"
-                onClick={() => completeWeekTurn(selectedLineupIds)}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
-              >
-                <FastForward className="w-3.5 h-3.5" />
-                {hasPlayedMatchThisWeek
-                  ? hasRunCampThisWeek
-                    ? `Advance to Wk ${displayWeek + 1}`
-                    : `Run Camp & Advance (Wk ${displayWeek})`
-                  : hasRunCampThisWeek
-                  ? `Sim Match → Wk ${displayWeek + 1}`
-                  : `Sim Camp + Match (Wk ${displayWeek})`}
-              </button>
-            )}
           </div>
         </aside>
 
@@ -908,6 +761,29 @@ export default function App() {
             </div>
           )}
 
+          {/* HALFTIME LOCK BANNER WHEN NAVIGATING AWAY MID-MATCH */}
+          {halftimeState && activeTab !== 'matches' && (
+            <div className="bg-amber-950/80 border-2 border-amber-400/70 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+              <div className="space-y-0.5">
+                <span className="text-xs font-mono uppercase font-extrabold text-amber-300 block">
+                  ⏱️ Match In Progress — Halftime (45&apos;) • Score{' '}
+                  {halftimeState.halftimeGoalsFor} -{' '}
+                  {halftimeState.halftimeGoalsAgainst}
+                </span>
+                <p className="text-xs text-slate-200">
+                  Training camps, medical rehab, and week advancement are locked while your squad is in the halftime locker room.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('matches')}
+                className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs cursor-pointer"
+              >
+                Return to Halftime Locker Room →
+              </button>
+            </div>
+          )}
+
           {/* VIEW 1: MANAGER DESK DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
@@ -925,38 +801,43 @@ export default function App() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectSquadCamp(
-                          selectedCampId === 'camp_recovery'
-                            ? 'camp_scrimmage'
-                            : 'camp_recovery'
-                        )
-                      }
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition cursor-pointer ${
-                        selectedCampId === 'camp_recovery'
-                          ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-                          : squadEnergy.avgStamina < 55
-                          ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                      }`}
-                    >
-                      <Heart className="w-4 h-4" />
-                      {selectedCampId === 'camp_recovery'
-                        ? '🛌 Recovery Week Set'
-                        : 'Set Full Recovery Week'}
-                    </button>
-                    {!isCampaignOver && !hasRunCampThisWeek && (
-                      <button
-                        type="button"
-                        onClick={runWeeklyCamp}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-500/20 cursor-pointer"
-                      >
-                        <Sparkles className="w-4 h-4" />
-                        1. Run Mon–Fri Camp ({activeCamp.emoji})
-                      </button>
-                    )}
+                    {!isCampaignOver &&
+                      !hasRunCampThisWeek &&
+                      !hasPlayedMatchThisWeek &&
+                      !halftimeState && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              selectSquadCamp(
+                                selectedCampId === 'camp_recovery'
+                                  ? 'camp_scrimmage'
+                                  : 'camp_recovery'
+                              )
+                            }
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition cursor-pointer ${
+                              selectedCampId === 'camp_recovery'
+                                ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                                : squadEnergy.avgStamina < 55
+                                ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                            }`}
+                          >
+                            <Heart className="w-4 h-4" />
+                            {selectedCampId === 'camp_recovery'
+                              ? '🛌 Recovery Week Set'
+                              : 'Set Full Recovery Week'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={runWeeklyCamp}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-500/20 cursor-pointer"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            1. Run Mon–Fri Camp ({activeCamp.emoji})
+                          </button>
+                        </>
+                      )}
                     {!isCampaignOver && !hasPlayedMatchThisWeek && (
                       <button
                         type="button"
@@ -976,7 +857,9 @@ export default function App() {
                         <Swords className="w-4 h-4" />
                         {halftimeState
                           ? `Resume Halftime (Wk ${displayWeek})`
-                          : `2. Kick Off Week ${displayWeek} Match`}
+                          : hasRunCampThisWeek
+                          ? `2. Kick Off Week ${displayWeek} Match`
+                          : `Run Camp & Kick Off Wk ${displayWeek}`}
                       </button>
                     )}
                     {!isCampaignOver && hasPlayedMatchThisWeek && (
@@ -1057,6 +940,14 @@ export default function App() {
                         ? currentScheduledFixture.zoneRatings
                         : undefined,
                       unlockedFacilities: team.unlockedFacilities,
+                      opponentFormation: isWeekScouted
+                        ? currentScheduledFixture.opponentFormation
+                        : undefined,
+                      bossPerkId: isWeekScouted
+                        ? currentScheduledFixture.bossPerk?.id
+                        : undefined,
+                      activeMatchPrep,
+                      freshBounce: freshBounceActive,
                     }
                   );
                   return (
@@ -1127,10 +1018,10 @@ export default function App() {
 
                       <button
                         type="button"
-                        disabled={isCampaignOver}
+                        disabled={isCampaignOver || Boolean(halftimeState)}
                         onClick={() => completeWeekTurn(selectedLineupIds)}
                         className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition ${
-                          isCampaignOver
+                          isCampaignOver || Boolean(halftimeState)
                             ? 'bg-slate-950/40 border-slate-800 text-slate-500 cursor-not-allowed'
                             : hasPlayedMatchThisWeek
                             ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-400/60 cursor-pointer'
@@ -1142,10 +1033,10 @@ export default function App() {
                             3. Advance Week {displayWeek}
                           </span>
                           <span className="text-xs font-bold text-white block">
-                            {hasPlayedMatchThisWeek
-                              ? hasRunCampThisWeek
-                                ? `Proceed → Wk ${displayWeek + 1}`
-                                : `Run "${activeCamp.title}" & Advance → Wk ${displayWeek + 1}`
+                            {halftimeState
+                              ? 'Finish 2nd Half First'
+                              : hasPlayedMatchThisWeek
+                              ? `Proceed → Wk ${displayWeek + 1}`
                               : hasRunCampThisWeek
                               ? `Sim Match → Wk ${displayWeek + 1}`
                               : `Sim Camp + Match → Wk ${displayWeek + 1}`}
@@ -1262,18 +1153,18 @@ export default function App() {
               </div>
 
               {/* Weekly Simulation Logs & Latest Match Result */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                <details className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 group">
+                  <summary className="flex items-center justify-between cursor-pointer list-none">
                     <h3 className="text-base font-bold text-white flex items-center gap-2">
                       <TrendingUp className="w-4 h-4 text-emerald-400" />
-                      Training Ground &amp; Captaincy Telemetry Feed
+                      Weekly Telemetry &amp; Captaincy Log
                     </h3>
                     <span className="text-xs text-slate-400 font-mono">
-                      {weeklySummaryLogs.length} entries
+                      {weeklySummaryLogs.length} entries (Click to expand ▼)
                     </span>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto space-y-2 pr-1 font-mono text-xs">
+                  </summary>
+                  <div className="max-h-80 overflow-y-auto space-y-2 pr-1 pt-4 mt-4 border-t border-slate-800 font-mono text-xs">
                     {weeklySummaryLogs.map((log, index) => {
                       const isCriticalBurnout = log.startsWith('[CRITICAL]');
                       const isBurnoutRest = log.startsWith('[BURNOUT REST]');
@@ -1312,7 +1203,7 @@ export default function App() {
                       );
                     })}
                   </div>
-                </div>
+                </details>
 
                 {/* Recent Match Result Card */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4">
@@ -1374,8 +1265,20 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Captain Career Milestones & Club Facilities Upgrade Center */}
+          {/* VIEW 5: CLUB FACILITIES & CAPTAIN MILESTONES */}
+          {activeTab === 'club' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">
+                  Club Infrastructure &amp; Captain Milestones
+                </h2>
+                <p className="text-sm text-slate-400">
+                  Invest match earnings into Tier-1 &amp; Tier-2 facilities and track seasonal Captain perks.
+                </p>
+              </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Captain Career Milestones */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -1591,19 +1494,30 @@ export default function App() {
                                 {cond.emoji} {cond.label} {cond.arrow}
                               </span>
                             </div>
-                            {player.traits && player.traits.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                {player.traits.map((tr) => (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {getPlayerTraitProgress(player).map((item) =>
+                                item.unlocked ? (
                                   <span
-                                    key={tr.id}
-                                    title={tr.summary}
-                                    className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-200 border border-amber-500/40"
+                                    key={item.trait.id}
+                                    title={item.trait.summary}
+                                    className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/50"
                                   >
-                                    {tr.icon} {tr.name}
+                                    {item.trait.icon} {item.trait.name}
                                   </span>
-                                ))}
-                              </div>
-                            )}
+                                ) : (
+                                  <span
+                                    key={item.trait.id}
+                                    title={`Locked Trait — ${item.trait.summary}`}
+                                    className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-950 text-slate-400 border border-slate-800"
+                                  >
+                                    🔒 {item.trait.icon} {item.trait.name}:{' '}
+                                    <strong className="text-slate-200">
+                                      {item.progressText}
+                                    </strong>
+                                  </span>
+                                )
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -1735,15 +1649,17 @@ export default function App() {
                           </span>
                           <button
                             type="button"
-                            disabled={team.funds < 800}
+                            disabled={team.funds < 800 || Boolean(halftimeState)}
                             onClick={() => healPlayerRehab(player.id)}
                             className={`px-3 py-1.5 rounded-lg font-extrabold transition ${
-                              team.funds >= 800
+                              team.funds >= 800 && !halftimeState
                                 ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                                 : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                             }`}
                           >
-                            {team.funds >= 800
+                            {halftimeState
+                              ? 'In Match (Halftime)'
+                              : team.funds >= 800
                               ? 'Treat Now (¥800)'
                               : 'Need ¥800'}
                           </button>
@@ -1936,31 +1852,43 @@ export default function App() {
                 <div className="flex flex-wrap items-center gap-2.5">
                   <button
                     type="button"
-                    disabled={isCampaignOver || hasRunCampThisWeek}
+                    disabled={
+                      isCampaignOver ||
+                      hasRunCampThisWeek ||
+                      hasPlayedMatchThisWeek ||
+                      Boolean(halftimeState)
+                    }
                     onClick={runWeeklyCamp}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm shadow-lg ${
-                      isCampaignOver || hasRunCampThisWeek
+                      isCampaignOver ||
+                      hasRunCampThisWeek ||
+                      hasPlayedMatchThisWeek ||
+                      Boolean(halftimeState)
                         ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20 cursor-pointer'
                     }`}
                   >
                     <Sparkles className="w-4 h-4" />
-                    {hasRunCampThisWeek
+                    {halftimeState
+                      ? 'Locked (Match at Halftime)'
+                      : hasRunCampThisWeek || hasPlayedMatchThisWeek
                       ? `Mon–Fri Camp Done (${activeCamp.emoji})`
                       : `Run Mon–Fri Camp (${activeCamp.emoji})`}
                   </button>
                   <button
                     type="button"
-                    disabled={isCampaignOver}
+                    disabled={isCampaignOver || Boolean(halftimeState)}
                     onClick={() => completeWeekTurn(selectedLineupIds)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm shadow-lg cursor-pointer ${
-                      isCampaignOver
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm shadow-lg ${
+                      isCampaignOver || Boolean(halftimeState)
                         ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                        : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200'
+                        : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 cursor-pointer'
                     }`}
                   >
                     <FastForward className="w-4 h-4 text-emerald-400" />
-                    {hasPlayedMatchThisWeek
+                    {halftimeState
+                      ? 'Finish 2nd Half First'
+                      : hasPlayedMatchThisWeek
                       ? `Advance to Wk ${displayWeek + 1}`
                       : `Auto-Sim Week ${displayWeek}`}
                   </button>
@@ -2015,112 +1943,55 @@ export default function App() {
                   const isTargetScouted = scoutedWeeks.includes(
                     targetFixture.week
                   );
-                  const ourZones = computeSquadZonePreview(
-                    team.players,
-                    team.formation,
-                    team.tacticalStyle,
-                    {
-                      unlockedFacilities: team.unlockedFacilities,
-                      opponentTactic: isTargetScouted
-                        ? targetFixture.favoredTactic
-                        : undefined,
-                    }
-                  );
-                  const oz = targetFixture.zoneRatings;
 
                   return (
-                    <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl p-5 space-y-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-mono uppercase font-bold text-indigo-300">
-                          {isPreviewingNextWeek
-                            ? `🎯 Next Week (Wk ${targetFixture.week}) Opponent Preview: ${targetFixture.opponentName}`
-                            : `Football Analysis • Week ${targetFixture.week}: ${targetFixture.opponentName}`}
-                        </span>
-                        <span className="text-xs font-mono text-amber-300 font-bold">
-                          ~{targetFixture.opponentRating} OVR
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] font-mono text-rose-300 uppercase block">
-                            Opponent Strength
+                    <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-mono uppercase font-bold text-indigo-300">
+                            {isPreviewingNextWeek
+                              ? `🎯 Next Week (Wk ${targetFixture.week}): ${targetFixture.opponentName}`
+                              : `Upcoming Fixture • Wk ${targetFixture.week}: ${targetFixture.opponentName}`}
                           </span>
-                          <span className="font-semibold text-slate-100">
-                            {targetFixture.strongZone ?? 'Balanced Press'}
+                          <span className="text-xs font-mono text-amber-300 font-bold">
+                            ~{targetFixture.opponentRating} OVR
                           </span>
                         </div>
-                        <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] font-mono text-emerald-300 uppercase block">
-                            Exploitable Weakness
+                        <div className="flex flex-wrap gap-2 text-[11px] font-mono">
+                          <span className="px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                            Strong: {targetFixture.strongZone ?? 'Balanced'}
                           </span>
-                          <span className="font-semibold text-slate-100">
-                            {targetFixture.weakZone ?? 'Transition Gaps'}
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            Weak: {targetFixture.weakZone ?? 'Transitions'}
                           </span>
                         </div>
-                      </div>
-                      {isTargetScouted ? (
-                        <div className="grid grid-cols-4 gap-1.5 text-[10px] font-mono pt-1">
-                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
-                            <span className="text-slate-400 block">Atk vs Def</span>
-                            <span className="font-bold text-white">
-                              {ourZones.attack} vs {oz.defense}
-                            </span>
-                          </div>
-                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
-                            <span className="text-slate-400 block">Midfield</span>
-                            <span className="font-bold text-white">
-                              {ourZones.midfield} vs {oz.midfield}
-                            </span>
-                          </div>
-                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
-                            <span className="text-slate-400 block">Def vs Atk</span>
-                            <span className="font-bold text-white">
-                              {ourZones.defense} vs {oz.attack}
-                            </span>
-                          </div>
-                          <div className="p-1.5 rounded bg-slate-950 border border-slate-800 text-center">
-                            <span className="text-slate-400 block">Pace</span>
-                            <span className="font-bold text-white">
-                              {ourZones.pace} vs {oz.pace}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                          <p className="text-xs text-slate-400 flex-1 min-w-[200px]">
-                            {targetFixture.scoutingClue ??
-                              targetFixture.description}
+                        {isTargetScouted ? (
+                          <p className="text-[11px] font-mono text-amber-300">
+                            ✓ Scouted: {targetFixture.favoredTactic} •{' '}
+                            {targetFixture.opponentFormation} (Counter:{' '}
+                            {targetFixture.recommendedCounter} /{' '}
+                            {targetFixture.recommendedFormation ?? 'Any'})
                           </p>
-                          <button
-                            type="button"
-                            disabled={team.funds < 400}
-                            onClick={() =>
-                              scoutWeekOpponent(targetFixture.week)
-                            }
-                            className="shrink-0 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-[11px] border border-indigo-500/30 cursor-pointer disabled:opacity-50"
-                          >
-                            🔍 Scout Wk {targetFixture.week} (¥400)
-                          </button>
-                        </div>
-                      )}
-                      {isTargetScouted && (
-                        <p className="text-[11px] font-mono text-amber-300">
-                          ✓ Scouted: Plays {targetFixture.favoredTactic} (Recommended Counter: {targetFixture.recommendedCounter})
-                        </p>
-                      )}
-                      {!isPreviewingNextWeek && nextScheduledFixture && (
-                        <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-indigo-200">
-                          <span>
-                            🗓️ Up Next (Wk {nextScheduledFixture.week}):{' '}
-                            <strong>{nextScheduledFixture.opponentName}</strong>{' '}
-                            (~{nextScheduledFixture.opponentRating} OVR)
-                          </span>
-                          <span className="text-slate-400">
-                            Strong: {nextScheduledFixture.strongZone} • Weak:{' '}
-                            {nextScheduledFixture.weakZone}
-                          </span>
-                        </div>
-                      )}
+                        ) : (
+                          <p className="text-xs text-slate-400">
+                            {targetFixture.scoutingClue ?? targetFixture.description}
+                          </p>
+                        )}
+                        {freshBounceActive && (
+                          <p className="text-[11px] font-mono text-emerald-300 font-bold">
+                            ⚡ Fresh Bounce Armed for Sunday (+4% Pace, +2% ATK/DEF)
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('matches')}
+                        className="self-start text-[11px] font-mono font-bold text-indigo-300 hover:text-indigo-200 underline cursor-pointer"
+                      >
+                        {isTargetScouted
+                          ? 'Review 4-Zone Matchup in Match Engine →'
+                          : 'Scout & Set Tactics in Match Engine →'}
+                      </button>
                     </div>
                   );
                 })()}
@@ -2214,27 +2085,59 @@ export default function App() {
                 })}
               </div>
 
-              {/* Fixed 5 Starters Condition Breakdown */}
+              {/* Fixed 5 Starters Condition & Live Camp Affinity Preview */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Fixed 5-a-Side Starters — Energy &amp; Stress Monitor
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Fixed 5-a-Side Starters — Projected Effect of{' '}
+                    <span className="text-emerald-300">{activeCamp.title}</span>
+                  </h3>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {activeCamp.subtitle}
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                   {team.players.map((p) => {
                     const cond = getPlayerConditionSummary(p);
                     const ovr = Math.round(calculatePlayerPositionalRating(p));
+                    const campPreview = getCampRolePreview(
+                      selectedCampId,
+                      p.position
+                    );
+                    const badgeClasses =
+                      campPreview.tier === 'boost'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : campPreview.tier === 'normal'
+                        ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                        : campPreview.tier === 'recovery'
+                        ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
+                        : 'bg-slate-900 text-slate-400 border-slate-700';
+
                     return (
                       <div
                         key={p.id}
-                        className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5 text-xs"
+                        className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs"
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-white truncate">
-                            {p.name}
+                            {p.name}{' '}
+                            <span className="text-[10px] font-mono text-slate-400">
+                              ({p.position})
+                            </span>
                           </span>
                           <span className="font-mono text-emerald-400 font-bold">
                             {ovr}
                           </span>
+                        </div>
+                        <div
+                          className={`text-[10px] font-mono font-bold px-2 py-1 rounded-lg border ${badgeClasses}`}
+                        >
+                          {campPreview.label}
+                          {campPreview.targetAttrsLabel !== 'Recovery' && (
+                            <span className="block text-[9px] opacity-85">
+                              Trains: {campPreview.targetAttrsLabel}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] text-slate-400">
                           {cond.emoji} {cond.label}
@@ -2259,108 +2162,12 @@ export default function App() {
                   5-a-Side Match Day Simulator
                 </h2>
                 <p className="text-sm text-slate-400">
-                  Select your 5-a-side lineup, set formation ({team.formation}) and tactical style ({team.tacticalStyle}), and kick off.
+                  Set formation ({team.formation}), tactical style ({team.tacticalStyle}), and optional Match Prep before kickoff.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Starting Lineup & Custom Opponent Rating */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
-                    1. 5-a-Side Lineup ({selectedLineupIds.length}/5 Active)
-                  </h3>
-                  <div className="space-y-2">
-                    {team.players.map((player) => {
-                      const isIncluded = selectedLineupIds.includes(player.id);
-                      const posRating = calculatePlayerPositionalRating(player);
-                      return (
-                        <button
-                          key={player.id}
-                          type="button"
-                          onClick={() => toggleLineupMember(player.id)}
-                          className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                            isIncluded
-                              ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
-                              : 'bg-slate-950 border-slate-800 text-slate-500'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <PlayerAvatar player={player} size="sm" />
-                            <div>
-                              <p className="text-xs font-bold flex items-center gap-1">
-                                {player.name}{' '}
-                                <span className="text-emerald-400 font-mono">
-                                  [{player.assignedPosition ?? player.position}]
-                                </span>
-                                {player.isCaptain && (
-                                  <Crown className="w-3 h-3 text-amber-400" />
-                                )}
-                              </p>
-                              <p className="text-[11px] text-slate-400 font-mono">
-                                Role OVR {Math.round(posRating)} • FIT{' '}
-                                {player.status.stamina}%
-                              </p>
-                            </div>
-                          </div>
-                          <span
-                            className={`text-[11px] font-mono px-2 py-0.5 rounded ${
-                              isIncluded
-                                ? 'bg-emerald-500 text-slate-950 font-bold'
-                                : 'bg-slate-800 text-slate-400'
-                            }`}
-                          >
-                            {isIncluded ? 'START' : 'REST'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Custom Opponent Rating Slider */}
-                  <div className="pt-3 border-t border-slate-800 space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <label
-                        htmlFor="opponent-slider"
-                        className="text-slate-400 font-medium"
-                      >
-                        Custom Opponent Rating:
-                      </label>
-                      <span className="font-mono font-bold text-amber-400">
-                        OVR {customOpponentRating}
-                      </span>
-                    </div>
-                    <input
-                      id="opponent-slider"
-                      type="range"
-                      min={15}
-                      max={95}
-                      value={customOpponentRating}
-                      onChange={(e) =>
-                        setCustomOpponentRating(Number(e.target.value))
-                      }
-                      className="w-full accent-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        runMatch(
-                          customOpponentRating,
-                          selectedLineupIds,
-                          `5v5 Exhibition (Opp Rating ${customOpponentRating})`,
-                          team.tacticalStyle
-                        )
-                      }
-                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
-                    >
-                      <Zap className="w-4 h-4" />
-                      Simulate 0-Pt Exhibition (OVR {customOpponentRating})
-                    </button>
-                  </div>
-                </div>
-
-                {/* Preset Fixture Cards with Visual Match Predictor & Rock-Paper-Scissors Scouting */}
-                <div className="lg:col-span-2 space-y-4">
-                  {/* Visual Rock-Paper-Scissors Tactic & Formation Trade-Off Switcher */}
+              <div className="space-y-4">
+                {/* Visual Rock-Paper-Scissors Tactic & Formation Trade-Off Switcher */}
                   <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="space-y-0.5">
@@ -2384,11 +2191,12 @@ export default function App() {
                             <button
                               key={t}
                               type="button"
+                              disabled={Boolean(halftimeState)}
                               onClick={() => setTactics({ tacticalStyle: t })}
-                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition disabled:opacity-50 disabled:cursor-not-allowed ${
                                 isCurrent
                                   ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300'
-                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white cursor-pointer'
                               }`}
                             >
                               {icon} {t}
@@ -2406,11 +2214,12 @@ export default function App() {
                             <button
                               key={f.id}
                               type="button"
+                              disabled={Boolean(halftimeState)}
                               onClick={() => setTactics({ formation: f.id })}
-                              className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition cursor-pointer ${
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition disabled:opacity-50 disabled:cursor-not-allowed ${
                                 isCurrent
                                   ? 'bg-indigo-500/20 border-indigo-400 text-indigo-200'
-                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white cursor-pointer'
                               }`}
                             >
                               {f.id}
@@ -2422,6 +2231,68 @@ export default function App() {
                         {getFormationProfile(team.formation).label}:{' '}
                         {getFormationProfile(team.formation).summary}
                       </span>
+                    </div>
+
+                    <p className="text-[10px] font-mono text-slate-400">
+                      Shape Counter RPS: 1-1-2-1 ▸ 1-2-2 • 1-2-1-1 ▸ 1-1-2-1 / 1-1-1-2 • 1-2-2 ▸ 1-2-1-1 • 1-1-1-2 ▸ 1-2-2
+                    </p>
+
+                    {/* Optional 1-Click Matchday Preparation (Cash Sinks) */}
+                    <div className="pt-2.5 border-t border-slate-800/80 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono uppercase font-bold text-amber-300">
+                          📋 Pre-Match Preparation (Optional • 1 per Week)
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-400">
+                          {activeMatchPrep === 'none'
+                            ? `Budget: ¥${team.funds.toLocaleString()}`
+                            : `Armed: ${
+                                MATCH_PREP_OPTIONS.find(
+                                  (p) => p.id === activeMatchPrep
+                                )?.title ?? activeMatchPrep
+                              }`}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {MATCH_PREP_OPTIONS.map((prep) => {
+                          const isArmed = activeMatchPrep === prep.id;
+                          const isLocked =
+                            Boolean(halftimeState) ||
+                            hasPlayedMatchThisWeek ||
+                            isCampaignOver ||
+                            activeMatchPrep !== 'none' ||
+                            team.funds < prep.cost;
+                          return (
+                            <button
+                              key={prep.id}
+                              type="button"
+                              disabled={isLocked && !isArmed}
+                              onClick={() => activateMatchPrep(prep.id)}
+                              className={`p-2.5 rounded-xl border text-left transition ${
+                                isArmed
+                                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-100 shadow-md'
+                                  : isLocked
+                                  ? 'bg-slate-950/60 border-slate-800 text-slate-500 cursor-not-allowed'
+                                  : 'bg-slate-950 border-slate-800 hover:border-amber-400/60 text-slate-200 cursor-pointer'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1 text-xs font-bold">
+                                <span>
+                                  {prep.emoji} {prep.title}
+                                </span>
+                                <span className="font-mono text-[10px] text-amber-300">
+                                  {isArmed
+                                    ? 'ARMED'
+                                    : `¥${prep.cost.toLocaleString()}`}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                                {prep.summary}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -2462,8 +2333,11 @@ export default function App() {
                           </h3>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-slate-950 border border-amber-500/40 text-xs font-mono text-amber-200">
-                          Opp Tactic: {halftimeState.opponentTactic} (~
-                          {halftimeState.scaledOpponentRating} OVR)
+                          Opp: {halftimeState.opponentTactic}
+                          {halftimeState.opponentFormation
+                            ? ` • ${halftimeState.opponentFormation}`
+                            : ''}{' '}
+                          (~{halftimeState.scaledOpponentRating} OVR)
                         </span>
                       </div>
 
@@ -2560,6 +2434,30 @@ export default function App() {
                           <p className="text-[10px] font-mono text-indigo-300">
                             {getFormationProfile(halftimeFormation).summary}
                           </p>
+                          {halftimeState.opponentFormation && (
+                            <p
+                              className={`text-[10px] font-mono font-bold ${
+                                getFormationMatchupMultiplier(
+                                  halftimeFormation,
+                                  halftimeState.opponentFormation
+                                ).hasAdvantage
+                                  ? 'text-emerald-300'
+                                  : getFormationMatchupMultiplier(
+                                      halftimeFormation,
+                                      halftimeState.opponentFormation
+                                    ).hasDisadvantage
+                                  ? 'text-rose-300'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {
+                                getFormationMatchupMultiplier(
+                                  halftimeFormation,
+                                  halftimeState.opponentFormation
+                                ).edgeLabel
+                              }
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex flex-col justify-end space-y-1">
@@ -2625,6 +2523,14 @@ export default function App() {
                           ? currentScheduledFixture.zoneRatings
                           : undefined,
                         unlockedFacilities: team.unlockedFacilities,
+                        opponentFormation: isWeekScouted
+                          ? currentScheduledFixture.opponentFormation
+                          : undefined,
+                        bossPerkId: isWeekScouted
+                          ? currentScheduledFixture.bossPerk?.id
+                          : undefined,
+                        activeMatchPrep,
+                        freshBounce: freshBounceActive,
                       }
                     );
                     const zonePreview = computeSquadZonePreview(
@@ -2636,6 +2542,11 @@ export default function App() {
                         opponentTactic: isWeekScouted
                           ? currentScheduledFixture.favoredTactic
                           : undefined,
+                        opponentFormation: isWeekScouted
+                          ? currentScheduledFixture.opponentFormation
+                          : undefined,
+                        activeMatchPrep,
+                        freshBounce: freshBounceActive,
                       }
                     );
                     const oppZones = currentScheduledFixture.zoneRatings;
@@ -2712,11 +2623,44 @@ export default function App() {
                               <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                                 Weak: {currentScheduledFixture.weakZone ?? 'Transitions'}
                               </span>
+                              {freshBounceActive && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-400/50 font-bold">
+                                  ⚡ Fresh Bounce Active (+4% Pace, +2% ATK/DEF)
+                                </span>
+                              )}
+                              {activeMatchPrep !== 'none' && (
+                                <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-400/50 font-bold">
+                                  📋{' '}
+                                  {
+                                    MATCH_PREP_OPTIONS.find(
+                                      (p) => p.id === activeMatchPrep
+                                    )?.title
+                                  }
+                                </span>
+                              )}
                             </div>
                             <p className="text-[11px] font-mono text-slate-400">
                               Our Squad OVR: {prediction.teamEffectiveRating} •{' '}
                               {squadEnergy.matchConditionLabel} • {synergyInfo.synergyNote}
                             </p>
+                            {isWeekScouted && prediction.formationEdgeLabel && (
+                              <p className="text-[11px] font-mono text-indigo-300">
+                                📐 {prediction.formationEdgeLabel}
+                              </p>
+                            )}
+                            {isWeekScouted && currentScheduledFixture.bossPerk && (
+                              <div
+                                className={`p-2 rounded-lg border text-[11px] font-mono ${
+                                  prediction.bossPerkTriggeredNote
+                                    ? 'bg-rose-950/60 border-rose-500/60 text-rose-200 font-bold'
+                                    : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                                }`}
+                              >
+                                ⚠️ <strong>{currentScheduledFixture.bossPerk.name}:</strong>{' '}
+                                {prediction.bossPerkTriggeredNote ??
+                                  currentScheduledFixture.bossPerk.summary}
+                              </div>
+                            )}
 
                             {/* Pre-Match 4-Zone Tactical Matchup Board */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
@@ -2775,11 +2719,38 @@ export default function App() {
                                     Use {currentScheduledFixture.recommendedCounter}
                                   </button>
                                 </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-400">
+                                    Scouted Shape:
+                                  </span>
+                                  <span className="font-mono font-bold text-indigo-300">
+                                    {currentScheduledFixture.opponentFormation}
+                                  </span>
+                                </div>
+                                {currentScheduledFixture.recommendedFormation && (
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-slate-400">
+                                      Counter Shape:
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setTactics({
+                                          formation:
+                                            currentScheduledFixture.recommendedFormation,
+                                        })
+                                      }
+                                      className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
+                                    >
+                                      Use {currentScheduledFixture.recommendedFormation}
+                                    </button>
+                                  </div>
+                                )}
                               </>
                             ) : (
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between text-slate-400">
-                                  <span>Opponent Tactic:</span>
+                                  <span>Opponent Intel:</span>
                                   <span className="font-mono text-slate-300">
                                     ??? (Unscouted)
                                   </span>
@@ -2790,7 +2761,7 @@ export default function App() {
                                   onClick={() => scoutWeekOpponent(displayWeek)}
                                   className="w-full py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-[11px] border border-indigo-500/30 cursor-pointer disabled:opacity-50"
                                 >
-                                  🔍 Pay ¥400 to Scout Zones &amp; Tactic
+                                  🔍 Pay ¥400 to Scout Zones, Shape &amp; Perk
                                 </button>
                               </div>
                             )}
@@ -2873,9 +2844,14 @@ export default function App() {
                               <p className="text-[11px] font-mono text-slate-400">
                                 Style:{' '}
                                 {isSchedScouted
-                                  ? sched.favoredTactic
+                                  ? `${sched.favoredTactic} (${sched.opponentFormation})`
                                   : 'Unscouted (¥400)'}
                               </p>
+                              {sched.bossPerk && (
+                                <p className="text-[10px] font-mono text-rose-300 font-bold">
+                                  👑 Boss Perk: {sched.bossPerk.name}
+                                </p>
+                              )}
                               {sched.gateNote && (
                                 <p className="text-[10px] font-mono text-amber-300 font-bold">
                                   ⚠️ {sched.gateNote}
@@ -2887,7 +2863,112 @@ export default function App() {
                       </div>
                     </div>
                   </details>
-                </div>
+
+                {/* Collapsible Friendly Exhibition & Custom Lineup */}
+                <details className="group rounded-2xl bg-slate-900 border border-slate-800 p-4">
+                  <summary className="cursor-pointer list-none flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-200 hover:text-indigo-300">
+                    <span>
+                      ⚡ Friendly 0-Pt Exhibition &amp; Lineup Picker ({selectedLineupIds.length}/5 Active)
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      Expand / Collapse ▼
+                    </span>
+                  </summary>
+
+                  <div className="pt-4 mt-4 border-t border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      {team.players.map((player) => {
+                        const isIncluded = selectedLineupIds.includes(player.id);
+                        const posRating = calculatePlayerPositionalRating(player);
+                        return (
+                          <button
+                            key={player.id}
+                            type="button"
+                            onClick={() => toggleLineupMember(player.id)}
+                            className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                              isIncluded
+                                ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
+                                : 'bg-slate-950 border-slate-800 text-slate-500'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <PlayerAvatar player={player} size="sm" />
+                              <div>
+                                <p className="text-xs font-bold flex items-center gap-1">
+                                  {player.name}{' '}
+                                  <span className="text-emerald-400 font-mono">
+                                    [{player.assignedPosition ?? player.position}]
+                                  </span>
+                                  {player.isCaptain && (
+                                    <Crown className="w-3 h-3 text-amber-400" />
+                                  )}
+                                </p>
+                                <p className="text-[11px] text-slate-400 font-mono">
+                                  Role OVR {Math.round(posRating)} • FIT{' '}
+                                  {player.status.stamina}%
+                                </p>
+                              </div>
+                            </div>
+                            <span
+                              className={`text-[11px] font-mono px-2 py-0.5 rounded ${
+                                isIncluded
+                                  ? 'bg-emerald-500 text-slate-950 font-bold'
+                                  : 'bg-slate-800 text-slate-400'
+                              }`}
+                            >
+                              {isIncluded ? 'START' : 'REST'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <label
+                            htmlFor="opponent-slider"
+                            className="text-slate-400 font-medium"
+                          >
+                            Custom Opponent Rating:
+                          </label>
+                          <span className="font-mono font-bold text-amber-400">
+                            OVR {customOpponentRating}
+                          </span>
+                        </div>
+                        <input
+                          id="opponent-slider"
+                          type="range"
+                          min={15}
+                          max={95}
+                          value={customOpponentRating}
+                          onChange={(e) =>
+                            setCustomOpponentRating(Number(e.target.value))
+                          }
+                          className="w-full accent-emerald-500"
+                        />
+                        <p className="text-[11px] text-slate-400">
+                          Exhibition scrimmages award 0 League Points and 0 official prize money.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runMatch(
+                            customOpponentRating,
+                            selectedLineupIds,
+                            `5v5 Exhibition (Opp Rating ${customOpponentRating})`,
+                            team.tacticalStyle
+                          )
+                        }
+                        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
+                      >
+                        <Zap className="w-4 h-4" />
+                        Simulate 0-Pt Exhibition (OVR {customOpponentRating})
+                      </button>
+                    </div>
+                  </div>
+                </details>
               </div>
 
               {/* Match Scoreboard, Score Meter & Scrolling Play-by-Play Feed */}

@@ -12,6 +12,7 @@ import {
   DAYS_OF_WEEK,
   DayOfWeek,
   DrillRiskTier,
+  EventMatchBonus,
   FacilityId,
   FormationType,
   HalftimeMatchState,
@@ -26,6 +27,7 @@ import {
   TacticalStyle,
   Team,
   TrainingRegimeId,
+  WeeklyCampSpotlight,
   WeeklyDaySchedule,
   WeeklyTurnSummary,
 } from './types';
@@ -53,6 +55,7 @@ import {
   calculatePlayerPositionalRating,
   calculateScaledOpponentRating,
   clamp0To100,
+  DEFAULT_WEEK1_SPOTLIGHTS,
   detectPlayerRegime,
   estimateMatchWinProbability,
   evaluateCampaignRun,
@@ -70,6 +73,7 @@ import {
   processSquadCampWeek,
   processWeeklySchedule,
   resolveSecondHalf,
+  rollWeeklyCampSpotlights,
   simulateFirstHalf,
   simulateMatch,
 } from './simulationEngine';
@@ -121,6 +125,10 @@ export interface GameState {
   halftimeState: HalftimeMatchState | null;
   activeMatchPrep: MatchPrepId;
   freshBounceActive: boolean;
+  activeEventMatchBonus: EventMatchBonus | null;
+  weeklySpotlights: WeeklyCampSpotlight[];
+  seenCaptainEventIds: string[];
+  featuredPlayerId: string;
   agency: Team;
   team: Team;
   availableTasks: ScheduleTask[];
@@ -148,6 +156,10 @@ export const INITIAL_GAME_STATE: GameState = {
   halftimeState: null,
   activeMatchPrep: 'none',
   freshBounceActive: false,
+  activeEventMatchBonus: null,
+  weeklySpotlights: DEFAULT_WEEK1_SPOTLIGHTS,
+  seenCaptainEventIds: [],
+  featuredPlayerId: 'player_01',
   agency: INITIAL_TEAM,
   team: INITIAL_TEAM,
   availableTasks: DEFAULT_SCHEDULE_TASKS,
@@ -196,6 +208,19 @@ function loadSavedGameState(fallback: GameState): GameState {
       halftimeState: parsed.halftimeState ?? null,
       activeMatchPrep: parsed.activeMatchPrep ?? 'none',
       freshBounceActive: Boolean(parsed.freshBounceActive),
+      activeEventMatchBonus: parsed.activeEventMatchBonus ?? null,
+      weeklySpotlights:
+        Array.isArray(parsed.weeklySpotlights) && parsed.weeklySpotlights.length > 0
+          ? parsed.weeklySpotlights
+          : DEFAULT_WEEK1_SPOTLIGHTS,
+      seenCaptainEventIds: Array.isArray(parsed.seenCaptainEventIds)
+        ? parsed.seenCaptainEventIds
+        : [],
+      featuredPlayerId:
+        typeof parsed.featuredPlayerId === 'string' &&
+        migratedPlayers.some((p) => p.id === parsed.featuredPlayerId)
+          ? parsed.featuredPlayerId
+          : 'player_01',
       hasRunCampThisWeek: Boolean(parsed.hasRunCampThisWeek),
       hasPlayedMatchThisWeek: Boolean(parsed.hasPlayedMatchThisWeek),
     };
@@ -294,6 +319,7 @@ export type GameAction =
   | { type: 'ADD_IDOL'; payload: { idol: Player; signingCost?: number } }
   | { type: 'HEAL_PLAYER_REHAB'; payload: { playerId: string } }
   | { type: 'DISMISS_WEEK_SUMMARY' }
+  | { type: 'SET_FEATURED_PLAYER'; payload: { playerId: string } }
   | { type: 'RESET_GAME' };
 
 export function applyScheduleTaskToIdol(
@@ -464,7 +490,7 @@ function applyCompletedMatchToState(
           (hasMediaHype ? 1.35 : 1.0)
       );
   const fansGained = isExhibition
-    ? Math.round(rawResult.rewards.fansGained * 0.15)
+    ? 0
     : Math.round(
         rawResult.rewards.fansGained *
           (hasYouthAcademy ? 1.25 : 1.0) *
@@ -493,12 +519,13 @@ function applyCompletedMatchToState(
     (activeTactic === 'Attacking' ? 9 : 7) * (hasStrengthGym ? 0.85 : 1.0) +
     extraRallyStaminaCost;
   const baseMatchStressCost = 4 + (extraRallyStaminaCost > 0 ? 4 : 0);
-  const matchMoraleDelta =
-    rawResult.pointsEarned === 3
-      ? 4
-      : rawResult.pointsEarned === 1
-      ? 1
-      : -3;
+  const matchMoraleDelta = isExhibition
+    ? 0
+    : rawResult.pointsEarned === 3
+    ? 4
+    : rawResult.pointsEarned === 1
+    ? 1
+    : -3;
 
   const postMatchInjuryLogs: string[] = [];
   const nextPlayers = state.team.players.map((player) => {
@@ -681,6 +708,9 @@ function applyWeeklyCampToState(state: GameState): GameState {
     weeklyCosts + facilityUpkeep + squadWages - sponsorStipend
   );
 
+  const activeSpotlight =
+    state.weeklySpotlights.find((s) => s.campId === state.selectedCampId) ?? null;
+
   const {
     updatedPlayers,
     summaryLogs,
@@ -689,9 +719,40 @@ function applyWeeklyCampToState(state: GameState): GameState {
     playerReports,
   } = processSquadCampWeek(state.team.players, selectedCamp, Math.random, {
     unlockedFacilities: state.team.unlockedFacilities,
+    spotlight: activeSpotlight,
+    seenEventIds: state.seenCaptainEventIds,
   });
 
-  const headerLog = `=== Week ${state.week} Mon–Fri Camp: ${selectedCamp.title} (Camp: ¥${weeklyCosts.toLocaleString()} + Wages/Upkeep: ¥${(facilityUpkeep + squadWages).toLocaleString()} - Sponsor Stipend: +¥${sponsorStipend.toLocaleString()} = Net -¥${totalWeeklyOutflow.toLocaleString()}) ===`;
+  const spotlightBonusFunds =
+    campOutcome !== 'slump' && activeSpotlight
+      ? activeSpotlight.bonusFunds
+      : 0;
+  let nextScoutedWeeks = state.scoutedWeeks;
+  let scoutClinicRebate = 0;
+  const spotlightNotes: string[] = [];
+  if (campOutcome !== 'slump' && activeSpotlight) {
+    spotlightNotes.push(
+      `${activeSpotlight.badge}: ${activeSpotlight.effectSummary}`
+    );
+    if (activeSpotlight.autoScoutWeek) {
+      if (!nextScoutedWeeks.includes(state.week)) {
+        nextScoutedWeeks = [...nextScoutedWeeks, state.week];
+        const fixture = getScheduledFixtureForWeek(state.week);
+        spotlightNotes.push(
+          `📋 Video Clinic Scouted Wk ${state.week}: ${fixture.opponentName} plays ${fixture.favoredTactic} (${fixture.opponentFormation}) — Counter: ${fixture.recommendedCounter}`
+        );
+      } else {
+        scoutClinicRebate = 400;
+        spotlightNotes.push('📋 Video Clinic Scout Rebate (+¥400)');
+      }
+    }
+  }
+
+  const headerLog = `=== Week ${state.week} Mon–Fri Camp: ${selectedCamp.title} (Camp: ¥${weeklyCosts.toLocaleString()} + Wages/Upkeep: ¥${(facilityUpkeep + squadWages).toLocaleString()} - Sponsor Stipend: +¥${sponsorStipend.toLocaleString()} = Net -¥${totalWeeklyOutflow.toLocaleString()}${
+    spotlightBonusFunds + scoutClinicRebate > 0
+      ? ` + Spotlight +¥${(spotlightBonusFunds + scoutClinicRebate).toLocaleString()}`
+      : ''
+  }) ===`;
 
   const milestoneCheck = evaluateMilestones({
     ...state,
@@ -707,20 +768,32 @@ function applyWeeklyCampToState(state: GameState): GameState {
 
   const nextState = syncTeamState(state, {
     ...state.team,
-    funds: Math.max(0, state.team.funds - totalWeeklyOutflow),
+    funds:
+      state.team.funds -
+      totalWeeklyOutflow +
+      spotlightBonusFunds +
+      scoutClinicRebate,
     players: traitEval.updatedPlayers,
   });
 
+  const nextSeenEvents =
+    triggeredCaptainEvent && !state.seenCaptainEventIds.includes(triggeredCaptainEvent.id)
+      ? [...state.seenCaptainEventIds, triggeredCaptainEvent.id]
+      : state.seenCaptainEventIds;
+
   const summaryNotes = [
+    ...spotlightNotes,
     ...milestoneCheck.milestoneLogs,
     ...traitEval.traitLogs,
     ...(triggeredCaptainEvent
-      ? [`Captain Dilemma triggered: ${triggeredCaptainEvent.title}`]
+      ? [`Dilemma triggered: ${triggeredCaptainEvent.title}`]
       : []),
   ];
 
   return {
     ...nextState,
+    scoutedWeeks: nextScoutedWeeks,
+    seenCaptainEventIds: nextSeenEvents,
     hasRunCampThisWeek: true,
     lastCampOutcome: campOutcome,
     freshBounceActive: campOutcome === 'recovery',
@@ -736,6 +809,7 @@ function applyWeeklyCampToState(state: GameState): GameState {
     },
     weeklySummaryLogs: [
       headerLog,
+      ...spotlightNotes,
       ...traitEval.traitLogs,
       ...milestoneCheck.milestoneLogs,
       ...summaryLogs,
@@ -747,7 +821,9 @@ function applyWeeklyCampToState(state: GameState): GameState {
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'SELECT_SQUAD_CAMP': {
-      if (state.halftimeState !== null) return state;
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       return {
         ...state,
         selectedCampId: action.payload.campId,
@@ -755,7 +831,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SCOUT_WEEK_OPPONENT': {
-      if (state.halftimeState !== null) return state;
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const targetWeek = action.payload?.week ?? state.week;
       const cost = action.payload?.cost ?? 400;
       if (state.scoutedWeeks.includes(targetWeek) || state.team.funds < cost) {
@@ -843,13 +921,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         : applyWeeklyCampToState(state);
 
       const scheduledFixture = getScheduledFixtureForWeek(preMatchState.week);
-      const participatingIds = action.payload?.participatingIdolIds;
-      const lineup =
-        participatingIds && participatingIds.length > 0
-          ? preMatchState.team.players.filter((p) =>
-              participatingIds.includes(p.id)
-            )
-          : preMatchState.team.players;
+      // Official 5-a-side fixtures always deploy the full starting 5
+      const lineup = preMatchState.team.players.slice(0, 5);
 
       const halftimeState: HalftimeMatchState = {
         ...simulateFirstHalf(
@@ -866,6 +939,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             bossPerkId: scheduledFixture.bossPerk?.id,
             activeMatchPrep: preMatchState.activeMatchPrep,
             freshBounce: preMatchState.freshBounceActive,
+            eventMatchBonus: preMatchState.activeEventMatchBonus,
             opponentZones: scheduledFixture.zoneRatings,
             unlockedFacilities: preMatchState.team.unlockedFacilities,
             disableWeekScaling: true,
@@ -885,12 +959,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const { tactic, formation, captainRally } = action.payload;
       const isExhibition =
         !state.halftimeState.isOfficial || state.hasPlayedMatchThisWeek;
-      const lineup = state.team.players.filter((p) =>
+      const fittedPlayers =
+        formation !== state.team.formation
+          ? autoAssignPlayersToFormation(state.team.players, formation)
+          : state.team.players;
+      const lineup = fittedPlayers.filter((p) =>
         state.halftimeState?.participatingPlayerIds.includes(p.id)
       );
 
       const rawResult = resolveSecondHalf(
-        lineup.length > 0 ? lineup : state.team.players,
+        lineup.length > 0 ? lineup : fittedPlayers,
         state.halftimeState,
         { tactic, formation, captainRally },
         { unlockedFacilities: state.team.unlockedFacilities }
@@ -900,6 +978,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...state.team,
         tacticalStyle: tactic,
         formation,
+        players: fittedPlayers,
       });
 
       return applyCompletedMatchToState(
@@ -912,6 +991,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SET_TACTICS': {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const { formation, tacticalStyle } = action.payload;
       const nextFormation = formation ?? state.team.formation;
       const nextPlayers =
@@ -927,6 +1009,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SET_PLAYER_POSITION': {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const { playerId, assignedPosition } = action.payload;
       const nextPlayers = state.team.players.map((p) =>
         p.id === playerId ? { ...p, assignedPosition } : p
@@ -935,6 +1020,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SWAP_PLAYER_POSITIONS': {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const { playerAId, playerBId } = action.payload;
       if (playerAId === playerBId) return state;
       const playerA = state.team.players.find((p) => p.id === playerAId);
@@ -951,6 +1039,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'AUTO_FIT_FORMATION': {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const nextPlayers = autoAssignPlayersToFormation(
         state.team.players,
         state.team.formation
@@ -959,6 +1050,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SET_CAPTAIN': {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const { playerId } = action.payload;
       const nextPlayers = state.team.players.map((p) => ({
         ...p,
@@ -987,7 +1081,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const { choiceId } = action.payload;
       if (!state.activeCaptainEvent) return state;
 
-      const { updatedPlayers, outcomeLog } = applyCaptainEventChoice(
+      const {
+        updatedPlayers,
+        outcomeLog,
+        fundsDelta,
+        reputationDelta,
+        nextMatchBonus,
+      } = applyCaptainEventChoice(
         state.team.players,
         state.activeCaptainEvent,
         choiceId
@@ -995,11 +1095,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const traitEval = evaluateSquadTraits(updatedPlayers);
       const nextState = syncTeamState(state, {
         ...state.team,
+        funds: state.team.funds + fundsDelta,
+        reputation: Math.max(
+          0,
+          Math.min(100, state.team.reputation + reputationDelta)
+        ),
         players: traitEval.updatedPlayers,
       });
       return {
         ...nextState,
         activeCaptainEvent: null,
+        activeEventMatchBonus: nextMatchBonus ?? state.activeEventMatchBonus,
         weeklySummaryLogs: [
           outcomeLog,
           ...traitEval.traitLogs,
@@ -1203,7 +1309,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'ADVANCE_WEEK': {
-      if (state.halftimeState !== null) {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
         return state;
       }
       const postCampState = state.hasRunCampThisWeek
@@ -1296,6 +1402,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         halftimeState: null,
         activeMatchPrep: 'none',
         freshBounceActive: false,
+        activeEventMatchBonus: null,
+        weeklySpotlights: rollWeeklyCampSpotlights(nextWeek, Math.random),
         campaignStatus: nextCampaignStatus,
         campaignOutcomeReason: nextOutcomeReason,
         hasRunCampThisWeek: false,
@@ -1312,7 +1420,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'RUN_PERFORMANCE': {
-      if (state.halftimeState !== null) {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
         return state;
       }
       const {
@@ -1332,11 +1440,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           : state;
 
       const lineup =
-        participatingIdolIds && participatingIdolIds.length > 0
+        isExhibition && participatingIdolIds && participatingIdolIds.length > 0
           ? workingState.team.players.filter((p) =>
               participatingIdolIds.includes(p.id)
             )
-          : workingState.team.players;
+          : workingState.team.players.slice(0, 5);
 
       const scheduledFixture = getScheduledFixtureForWeek(workingState.week);
       const activeTactic = tactic ?? workingState.team.tacticalStyle;
@@ -1353,6 +1461,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         bossPerkId: !isExhibition ? scheduledFixture.bossPerk?.id : undefined,
         activeMatchPrep: !isExhibition ? workingState.activeMatchPrep : 'none',
         freshBounce: !isExhibition ? workingState.freshBounceActive : false,
+        eventMatchBonus: !isExhibition ? workingState.activeEventMatchBonus : null,
         opponentZones,
         unlockedFacilities: workingState.team.unlockedFacilities,
         disableWeekScaling,
@@ -1377,6 +1486,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'UNLOCK_FACILITY': {
+      if (state.campaignStatus !== 'in_progress' || state.halftimeState !== null) {
+        return state;
+      }
       const { facilityId, cost } = action.payload;
       if (
         state.team.unlockedFacilities.includes(facilityId) ||
@@ -1516,8 +1628,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case 'SET_FEATURED_PLAYER': {
+      const exists = state.team.players.some(
+        (p) => p.id === action.payload.playerId
+      );
+      if (!exists) return state;
+      return {
+        ...state,
+        featuredPlayerId: action.payload.playerId,
+      };
+    }
+
     case 'RESET_GAME': {
-      return INITIAL_GAME_STATE;
+      return {
+        ...INITIAL_GAME_STATE,
+        weeklySpotlights: rollWeeklyCampSpotlights(1, Math.random),
+        seenCaptainEventIds: [],
+      };
     }
 
     default:
@@ -1584,6 +1711,7 @@ export interface GameStateContextValue {
   addIdol: (idol: Player, signingCost?: number) => void;
   healPlayerRehab: (playerId: string) => void;
   dismissWeekSummary: () => void;
+  setFeaturedPlayer: (playerId: string) => void;
   swapPlayerPositions: (playerAId: string, playerBId: string) => void;
   autoFitFormation: () => void;
   resetGame: () => void;
@@ -1708,6 +1836,8 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
     healPlayerRehab: (playerId) =>
       dispatch({ type: 'HEAL_PLAYER_REHAB', payload: { playerId } }),
     dismissWeekSummary: () => dispatch({ type: 'DISMISS_WEEK_SUMMARY' }),
+    setFeaturedPlayer: (playerId) =>
+      dispatch({ type: 'SET_FEATURED_PLAYER', payload: { playerId } }),
     swapPlayerPositions: (playerAId, playerBId) =>
       dispatch({
         type: 'SWAP_PLAYER_POSITIONS',

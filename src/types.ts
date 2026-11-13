@@ -213,8 +213,16 @@ export interface CaptainStats {
 }
 
 /**
- * Captain Event Structure (Uma Musume-style interactive training/story events)
+ * Captain & Club Dilemma Event Structure (Uma Musume-style interactive decisions)
  */
+export interface EventMatchBonus {
+  label: string;
+  attackPct?: number;
+  midfieldPct?: number;
+  defensePct?: number;
+  pacePct?: number;
+}
+
 export interface CaptainEventChoice {
   id: string;
   label: string;
@@ -223,12 +231,18 @@ export interface CaptainEventChoice {
     teamMoraleDelta?: number;
     teamStaminaDelta?: number;
     teamStressDelta?: number;
+    fundsDelta?: number;
+    fansDelta?: number;
+    reputationDelta?: number;
+    squadPrimaryBoost?: number;
+    nextMatchBonus?: EventMatchBonus;
   };
 }
 
 export interface CaptainEvent {
   id: string;
   title: string;
+  category?: 'Dilemma' | 'Media' | 'Training' | 'Club';
   eventText: string;
   choices: CaptainEventChoice[];
 }
@@ -563,6 +577,34 @@ export interface SquadCampDefinition {
   accentClass: string;
 }
 
+export type CampSpotlightKind =
+  | 'legend_visit'
+  | 'cryo_popup'
+  | 'trait_spark'
+  | 'sponsor_showcase'
+  | 'double_intensity'
+  | 'scout_clinic'
+  | 'miracle_spa';
+
+export interface WeeklyCampSpotlight {
+  campId: SquadCampId;
+  kind: CampSpotlightKind;
+  badge: string;
+  title: string;
+  effectSummary: string;
+  gainMultiplier: number;
+  energyCostMultiplier: number;
+  extraEnergyCost: number;
+  extraFailureChance: number;
+  failureChanceMultiplier: number;
+  bonusPrimaryStat: number;
+  bonusFunds: number;
+  bonusFans: number;
+  bonusMorale: number;
+  autoScoutWeek: boolean;
+  captainBonus?: Partial<CaptainStats>;
+}
+
 export interface HalftimeZoneReport {
   zone: string;
   ourValue: number;
@@ -584,6 +626,7 @@ export interface HalftimeMatchState {
   bossPerkId?: BossFixturePerk['id'];
   activeMatchPrep?: MatchPrepId;
   freshBounce?: boolean;
+  eventMatchBonus?: EventMatchBonus;
   tactic: TacticalStyle | string;
   formation: FormationType;
   participatingPlayerIds: string[];
@@ -610,4 +653,32 @@ export interface CampaignRunEvaluation {
   goalsFor: number;
   goalsAgainst: number;
   captainFinalOvr: number;
+}
+
+export type CharacterExpression =
+  | 'neutral'
+  | 'happy'
+  | 'fired_up'
+  | 'tired'
+  | 'serious';
+
+export type DialogueTrigger =
+  | 'menu_idle'
+  | 'tap'
+  | 'low_energy'
+  | 'spotlight_tip'
+  | 'camp_breakthrough'
+  | 'camp_slump'
+  | 'camp_recovery'
+  | 'pre_boss'
+  | 'post_win'
+  | 'post_draw'
+  | 'post_loss';
+
+export interface CharacterDialogueLine {
+  id: string;
+  avatarKey: string; // 'any' or starter avatarKey e.g. 'avatar_vance_fwd'
+  trigger: DialogueTrigger;
+  expression: CharacterExpression;
+  text: string;
 }

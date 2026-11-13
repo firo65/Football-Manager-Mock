@@ -122,7 +122,8 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Ice baths, physio tables, and load monitoring sensors to prevent training injuries.',
     cost: 5800,
     weeklyUpkeep: 200,
-    perkSummary: '-25% Camp Failure Risk & +5 Weekly Stamina Recovery',
+    perkSummary:
+      '-25% Camp Failure Risk, +8 Recovery Week Stamina & -3 Camp Drain',
   },
   {
     id: 'youth_academy',
@@ -752,6 +753,306 @@ export const CAPTAIN_EVENTS_POOL: CaptainEvent[] = [
         outcomeText:
           'The squad appreciated the smart call, avoiding colds and recovering fresh legs. (+8 Charisma, -9 Team Stress, +5 Team Stamina)',
         rewards: { charisma: 8, teamStressDelta: -9, teamStaminaDelta: 5 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_shady_sponsor',
+    title: 'Underground Energy Drink Offer',
+    category: 'Club',
+    eventText:
+      'A flashy, unverified energy drink brand offered immediate cash to sponsor the squad bibs for Sunday—if your players pose with their cans right now.',
+    choices: [
+      {
+        id: 'choice_take_bag',
+        label: 'Sign the quick promo deal for immediate transfer cash (+¥2,400 Funds, -150 Fans, -4 Morale)',
+        outcomeText:
+          'The club bank balance jumped overnight, though hardcore supporters roasted the gimmicky ad. (+¥2,400 Funds, -150 Fans, -4 Team Morale)',
+        rewards: { fundsDelta: 2400, fansDelta: -150, teamMoraleDelta: -4 },
+      },
+      {
+        id: 'choice_negotiate_clean',
+        label: 'Negotiate a watered-down stadium banner clause instead (+¥1,000 Funds, +6 Confidence)',
+        outcomeText:
+          'Smart boardroom composure secured solid cash without forcing players to chug mystery caffeine. (+¥1,000 Funds, +6 Confidence)',
+        rewards: { fundsDelta: 1000, confidence: 6 },
+      },
+      {
+        id: 'choice_reject_clean',
+        label: 'Turn it down publicly to protect club integrity (+180 Fans, +7 Charisma, +4 Morale)',
+        outcomeText:
+          'Local supporters applauded the club’s standards and the dressing room rallied behind the Captain. (+180 Fans, +7 Charisma, +4 Team Morale)',
+        rewards: { fansDelta: 180, charisma: 7, teamMoraleDelta: 4 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_pro_scrimmage',
+    title: 'Midnight Cage Match vs Ex-Pros',
+    category: 'Training',
+    eventText:
+      'Former national 5-a-side veterans invited your starters to a secret closed-door cage match tonight. It will be brutal on the legs—or pure tactical gold.',
+    choices: [
+      {
+        id: 'choice_full_cage_intensity',
+        label: 'Play 40 minutes at breakneck pace (+2 Primary Stat, +8 Passion, -12 Stamina, +7 Stress)',
+        outcomeText:
+          'Testing themselves against seasoned vets forced rapid breakthroughs across every position! (+2 Primary Stat per starter, +8 Passion, -12 Stamina, +7 Stress)',
+        rewards: {
+          squadPrimaryBoost: 2,
+          passion: 8,
+          teamStaminaDelta: -12,
+          teamStressDelta: 7,
+        },
+      },
+      {
+        id: 'choice_controlled_halves',
+        label: 'Play one crisp tactical 15-minute spell (+1 Primary Stat, +7 Confidence, -5 Stamina)',
+        outcomeText:
+          'Short, focused reps let the starters absorb pro angles without emptying Sunday’s tank. (+1 Primary Stat, +7 Confidence, -5 Stamina)',
+        rewards: { squadPrimaryBoost: 1, confidence: 7, teamStaminaDelta: -5 },
+      },
+      {
+        id: 'choice_watch_and_rest',
+        label: 'Watch from the touchline with notebooks & stretch (+5 Charisma, +9 Stamina, -7 Stress)',
+        outcomeText:
+          'Studying their movement with fresh legs kept everyone energized and sharp for Sunday. (+5 Charisma, +9 Stamina, -7 Stress)',
+        rewards: { charisma: 5, teamStaminaDelta: 9, teamStressDelta: -7 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_rival_call_out',
+    title: 'Rival Coach Calls Out Your Squad',
+    category: 'Media',
+    eventText:
+      'In a spicy pre-match podcast interview, this week’s rival manager claimed your 5-a-side unit folds whenever pressed in transition.',
+    choices: [
+      {
+        id: 'choice_derby_vow',
+        label: 'Vow to blitz them from minute one (+5% ATK & +4% PAC Sunday Buff, +6 Confidence, +6 Stress)',
+        outcomeText:
+          'The bold counter-call lit an intense fire under the forwards for Sunday! (Sunday Buff: +5% Attack & +4% Pace, +6 Confidence, +6 Stress)',
+        rewards: {
+          confidence: 6,
+          teamStressDelta: 6,
+          nextMatchBonus: {
+            label: 'Fiery Press Vow (+5% ATK, +4% PAC)',
+            attackPct: 5,
+            pacePct: 4,
+          },
+        },
+      },
+      {
+        id: 'choice_trap_setup',
+        label: 'Quietly drill mid-block counter traps (+5% MID & +4% DEF Sunday Buff, +7 Passion, -4 Stamina)',
+        outcomeText:
+          'The squad tuned their spacing in silence, determined to answer on the scoreboard! (Sunday Buff: +5% Midfield & +4% Defense, +7 Passion, -4 Stamina)',
+        rewards: {
+          passion: 7,
+          teamStaminaDelta: -4,
+          nextMatchBonus: {
+            label: 'Counter-Trap Prep (+5% MID, +4% DEF)',
+            midfieldPct: 5,
+            defensePct: 4,
+          },
+        },
+      },
+      {
+        id: 'choice_smile_brush_off',
+        label: 'Smile for the cameras and keep the locker room calm (+8 Charisma, +6 Morale, -6 Stress)',
+        outcomeText:
+          'Calm confidence deflated the mind games and lifted dressing room spirits. (+8 Charisma, +6 Team Morale, -6 Stress)',
+        rewards: { charisma: 8, teamMoraleDelta: 6, teamStressDelta: -6 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_rooftop_clinic',
+    title: 'Neighborhood Youth Futsal Clinic',
+    category: 'Club',
+    eventText:
+      'Local kids crowded the perimeter fence after practice hoping for autographs and a mini-clinic from the starting 5.',
+    choices: [
+      {
+        id: 'choice_full_shootout_show',
+        label: 'Run a high-energy 3v3 & shootout showcase (+260 Fans, +7 Passion, -7 Stamina)',
+        outcomeText:
+          'Word spread across the district—dozens of new supporters promised to pack Sunday’s stands! (+260 Fans, +7 Passion, -7 Stamina)',
+        rewards: { fansDelta: 260, passion: 7, teamStaminaDelta: -7 },
+      },
+      {
+        id: 'choice_merch_popup',
+        label: 'Open a spontaneous club scarf booth & Q&A (+¥950 Funds, +120 Fans, +5 Confidence, -4 Stamina)',
+        outcomeText:
+          'Community engagement and tidy merch sales gave both budget and swagger a nice bump. (+¥950 Funds, +120 Fans, +5 Confidence, -4 Stamina)',
+        rewards: {
+          fundsDelta: 950,
+          fansDelta: 120,
+          confidence: 5,
+          teamStaminaDelta: -4,
+        },
+      },
+      {
+        id: 'choice_quick_photos',
+        label: 'Sign shirts calmly before sending starters to rest (+7 Charisma, +80 Fans, +5 Morale)',
+        outcomeText:
+          'Warm smiles and disciplined rest balance left fans beaming and players fresh. (+7 Charisma, +80 Fans, +5 Morale)',
+        rewards: { charisma: 7, fansDelta: 80, teamMoraleDelta: 5 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_keeper_drill',
+    title: 'Sweeper-Keeper High-Line Trial',
+    category: 'Training',
+    eventText:
+      'Your goalkeeping coach wants to experiment with stepping 5 meters higher to launch instant counter-attacks after saves.',
+    choices: [
+      {
+        id: 'choice_aggressive_sweeper',
+        label: 'Commit to aggressive high-line counters (+4% PAC & +4% ATK Sunday Buff, +8 Confidence, -6 Stamina)',
+        outcomeText:
+          'Rapid keeper throws triggered blistering breaks in practice! (Sunday Buff: +4% Pace & +4% Attack, +8 Confidence, -6 Stamina)',
+        rewards: {
+          confidence: 8,
+          teamStaminaDelta: -6,
+          nextMatchBonus: {
+            label: 'Sweeper Launch (+4% PAC, +4% ATK)',
+            pacePct: 4,
+            attackPct: 4,
+          },
+        },
+      },
+      {
+        id: 'choice_reaction_gauntlet',
+        label: 'Turn it into a rapid close-range shooting gauntlet (+1 Primary Stat, +8 Passion, -8 Stamina, +5 Stress)',
+        outcomeText:
+          'Forwards and keeper pushed each other to razor-sharp reactions! (+1 Primary Stat, +8 Passion, -8 Stamina, +5 Stress)',
+        rewards: {
+          squadPrimaryBoost: 1,
+          passion: 8,
+          teamStaminaDelta: -8,
+          teamStressDelta: 5,
+        },
+      },
+      {
+        id: 'choice_safe_box',
+        label: 'Keep standard box positioning and focus on communication (+6 Charisma, +6 Stamina, -6 Stress)',
+        outcomeText:
+          'Clear defensive calls calmed the backline without burning extra energy. (+6 Charisma, +6 Stamina, -6 Stress)',
+        rewards: { charisma: 6, teamStaminaDelta: 6, teamStressDelta: -6 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_curfew_clash',
+    title: 'Late-Night Console Tournament',
+    category: 'Dilemma',
+    eventText:
+      'Two starters stayed up past curfew playing football sims in the dorm lounge ahead of a busy training block.',
+    choices: [
+      {
+        id: 'choice_dawn_shuttles',
+        label: 'Enforce 6 AM shuttle sprints as discipline (+10 Passion, -8 Stamina, -3 Morale, +5 Stress)',
+        outcomeText:
+          'Nobody loved the dawn whistle, but fierce accountability locked in camp focus. (+10 Passion, -8 Stamina, -3 Morale, +5 Stress)',
+        rewards: {
+          passion: 10,
+          teamStaminaDelta: -8,
+          teamMoraleDelta: -3,
+          teamStressDelta: 5,
+        },
+      },
+      {
+        id: 'choice_tactical_quiz',
+        label: 'Turn their match sim obsession into a whiteboard duel (+9 Confidence, +4% MID Sunday Buff)',
+        outcomeText:
+          'Using video clips to debate passing angles sharpened the whole midfield unit! (+9 Confidence, Sunday Buff: +4% Midfield)',
+        rewards: {
+          confidence: 9,
+          nextMatchBonus: {
+            label: 'Video Angle Sync (+4% MID)',
+            midfieldPct: 4,
+          },
+        },
+      },
+      {
+        id: 'choice_ramen_truce',
+        label: 'Call lights out calmly and share warm broth next morning (+8 Charisma, +6 Morale, -6 Stress)',
+        outcomeText:
+          'Good-humored leadership kept team chemistry high while clearing lingering tension. (+8 Charisma, +6 Morale, -6 Stress)',
+        rewards: { charisma: 8, teamMoraleDelta: 6, teamStressDelta: -6 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_viral_clip',
+    title: 'Training Nutmeg Goes Viral',
+    category: 'Media',
+    eventText:
+      'A clipped 5-second video of an outrageous backheel nutmeg from Monday practice hit 120,000 views overnight.',
+    choices: [
+      {
+        id: 'choice_trick_challenge',
+        label: 'Film an extra freestyle challenge with local creators (+280 Fans, +¥1,100 Funds, -6 Stamina, +4 Stress)',
+        outcomeText:
+          'Sponsors and followers flooded in as the clip snowballed! (+280 Fans, +¥1,100 Funds, -6 Stamina, +4 Stress)',
+        rewards: {
+          fansDelta: 280,
+          fundsDelta: 1100,
+          teamStaminaDelta: -6,
+          teamStressDelta: 4,
+        },
+      },
+      {
+        id: 'choice_analyst_breakdown',
+        label: 'Post a tactical breakdown of the off-ball run (+1 Primary Stat, +7 Confidence, -4 Stamina)',
+        outcomeText:
+          'Reviewing the spacing frame-by-frame cemented smarter movement across the squad. (+1 Primary Stat, +7 Confidence, -4 Stamina)',
+        rewards: { squadPrimaryBoost: 1, confidence: 7, teamStaminaDelta: -4 },
+      },
+      {
+        id: 'choice_stay_humble',
+        label: 'Mute notifications and keep the dressing room humble (+8 Charisma, +6 Morale, -5 Stress)',
+        outcomeText:
+          'Staying grounded kept egos in check and pressure off the squad. (+8 Charisma, +6 Morale, -5 Stress)',
+        rewards: { charisma: 8, teamMoraleDelta: 6, teamStressDelta: -5 },
+      },
+    ],
+  },
+  {
+    id: 'cap_event_physio_gamble',
+    title: 'Sports Recovery Pop-Up Van',
+    category: 'Dilemma',
+    eventText:
+      'A traveling pro physio crew parked outside your court with compression boots and spare time before evening drills.',
+    choices: [
+      {
+        id: 'choice_paid_pro_boots',
+        label: 'Pay for full squad compression session (-¥900 Funds, +16 Stamina, -11 Stress, +5 Morale)',
+        outcomeText:
+          'Freshly flushed legs and deep recovery left the whole 5-a-side unit buzzing! (-¥900 Funds, +16 Stamina, -11 Stress, +5 Morale)',
+        rewards: {
+          fundsDelta: -900,
+          teamStaminaDelta: 16,
+          teamStressDelta: -11,
+          teamMoraleDelta: 5,
+        },
+      },
+      {
+        id: 'choice_demo_plus_drills',
+        label: 'Take the free tape samples & squeeze in bonus drills (+2 Primary Stat, +6 Passion, -7 Stamina)',
+        outcomeText:
+          'Extra ankle support gave starters confidence to attack 1v1s at full speed! (+2 Primary Stat, +6 Passion, -7 Stamina)',
+        rewards: { squadPrimaryBoost: 2, passion: 6, teamStaminaDelta: -7 },
+      },
+      {
+        id: 'choice_ice_baths',
+        label: 'Stick to the club’s classic ice bath routine (+7 Stamina, -7 Stress, +5 Charisma)',
+        outcomeText:
+          'Free, steady recovery kept budgets intact and stress dropping. (+7 Stamina, -7 Stress, +5 Charisma)',
+        rewards: { teamStaminaDelta: 7, teamStressDelta: -7, charisma: 5 },
       },
     ],
   },

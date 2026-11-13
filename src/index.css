@@ -1,2 +1,31 @@
 @import "tailwindcss";
 
+@keyframes character-breathe {
+  0%, 100% {
+    transform: translateY(0px) scaleY(1);
+  }
+  50% {
+    transform: translateY(-3px) scaleY(1.012);
+  }
+}
+
+@keyframes character-tap-bounce {
+  0% {
+    transform: translateY(0px) scale(1);
+  }
+  35% {
+    transform: translateY(-7px) scale(1.02);
+  }
+  100% {
+    transform: translateY(0px) scale(1);
+  }
+}
+
+.animate-character-breathe {
+  animation: character-breathe 4.2s ease-in-out infinite;
+}
+
+.animate-character-tap {
+  animation: character-tap-bounce 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+

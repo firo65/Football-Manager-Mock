@@ -6,6 +6,7 @@ import {
 } from '../GameStateContext';
 import {
   applyBossMatchPerkModifier,
+  calculateCampFailureChance,
   calculateDiminishingStatGain,
   calculatePlayerPositionalRating,
   computeSquadZonePreview,
@@ -15,7 +16,11 @@ import {
   getRoleTrainingMultiplier,
   getSquadEnergySummary,
   resolvePenaltyShootout,
+  rollWeeklyCampSpotlights,
+  rollWeeklyCaptainEvent,
 } from '../simulationEngine';
+import { CAPTAIN_EVENTS_POOL } from '../mockData';
+import { pickCharacterLine } from '../dialogueEngine';
 
 describe('State-Machine & Chronological Integrity Rules', () => {
   it('auto-resolves Mon-Fri Camp before Sunday Kickoff if match starts first', () => {
@@ -314,6 +319,255 @@ describe('State-Machine & Chronological Integrity Rules', () => {
     expect(
       swapped.team.players.find((p) => p.id === flexDef.id)?.assignedPosition
     ).toBe('DEF');
+  });
+
+  it('prevents halftime facility/tactics/captain exploits and auto-fits halftime formation switches', () => {
+    const atHalftime = gameReducer(INITIAL_GAME_STATE, {
+      type: 'START_HALFTIME_MATCH',
+    });
+
+    const afterFacility = gameReducer(atHalftime, {
+      type: 'UNLOCK_FACILITY',
+      payload: { facilityId: 'strength_gym', cost: 5200 },
+    });
+    expect(afterFacility.team.unlockedFacilities).toEqual(
+      atHalftime.team.unlockedFacilities
+    );
+
+    const afterTactics = gameReducer(atHalftime, {
+      type: 'SET_TACTICS',
+      payload: { formation: '1-1-2-1', tacticalStyle: 'Counter' },
+    });
+    expect(afterTactics.team.formation).toBe(atHalftime.team.formation);
+
+    const afterCaptain = gameReducer(atHalftime, {
+      type: 'SET_CAPTAIN',
+      payload: { playerId: 'player_01' },
+    });
+    expect(
+      afterCaptain.team.players.find((p) => p.isCaptain)?.id
+    ).toBe(atHalftime.team.players.find((p) => p.isCaptain)?.id);
+
+    // Switching to 1-1-2-1 at halftime re-fits assigned positions cleanly
+    const fullTime = gameReducer(atHalftime, {
+      type: 'FINISH_HALFTIME_MATCH',
+      payload: {
+        tactic: 'Counter',
+        formation: '1-1-2-1',
+        captainRally: false,
+      },
+    });
+    expect(fullTime.team.formation).toBe('1-1-2-1');
+    expect(
+      fullTime.team.players.filter(
+        (p) => (p.assignedPosition ?? p.position) === 'MID'
+      )
+    ).toHaveLength(2);
+  });
+
+  it('blocks zero-budget free camp exploit and zero-supporter/4v5 official lineup cheese', () => {
+    // Spending to ¥0 incurs debt on camp rather than running camp + wages for free
+    const brokeState: GameState = {
+      ...INITIAL_GAME_STATE,
+      team: {
+        ...INITIAL_GAME_STATE.team,
+        funds: 0,
+      },
+    };
+    const afterBrokeCamp = gameReducer(brokeState, { type: 'RUN_WEEKLY_CAMP' });
+    expect(afterBrokeCamp.team.funds).toBeLessThan(0);
+
+    // Official match deploys all 5 starters even if fewer IDs are passed
+    const afterOfficial = gameReducer(INITIAL_GAME_STATE, {
+      type: 'RUN_PERFORMANCE',
+      payload: {
+        targetDifficulty: 27,
+        eventName: 'Week 1 Official',
+        participatingIdolIds: ['player_01', 'player_02'],
+        isOfficial: true,
+        disableWeekScaling: true,
+      },
+    });
+    expect(afterOfficial.matchHistory[0]?.participatingPlayerIds).toHaveLength(
+      5
+    );
+
+    // Post-match Exhibition grants 0 fans and 0 league points
+    const fansBefore = afterOfficial.team.players.reduce(
+      (s, p) => s + p.fanbase,
+      0
+    );
+    const afterEx = gameReducer(afterOfficial, {
+      type: 'RUN_PERFORMANCE',
+      payload: {
+        targetDifficulty: 15,
+        eventName: 'Friendly',
+        isOfficial: false,
+      },
+    });
+    const fansAfter = afterEx.team.players.reduce((s, p) => s + p.fanbase, 0);
+    expect(fansAfter).toBe(fansBefore);
+    expect(afterEx.performanceHistory[0]?.rewards.fansGained).toBe(0);
+  });
+
+  it('rolls distinct weekly camp spotlights and applies scout/cryo/dilemma effects cleanly', () => {
+    const rolled = rollWeeklyCampSpotlights(3);
+    expect(rolled).toHaveLength(2);
+    expect(rolled[0]!.campId).not.toBe(rolled[1]!.campId);
+
+    // Cryo pop-up spotlight reduces camp failure risk cleanly
+    const lowStaminaTeam = INITIAL_GAME_STATE.team.players.map((p) => ({
+      ...p,
+      status: { ...p.status, stamina: 40 },
+    }));
+    const attackCamp = {
+      id: 'camp_attack' as const,
+      title: 'Attacking',
+      subtitle: '',
+      emoji: '⚽',
+      description: '',
+      energyCost: 24,
+      stressDelta: 12,
+      monetaryCost: 1200,
+      baseFailureRate: 0.04,
+      targetSummary: '',
+      accentClass: '',
+    };
+    const baseRisk = calculateCampFailureChance(lowStaminaTeam, attackCamp, []);
+    const cryoSpotlight = {
+      campId: 'camp_attack' as const,
+      kind: 'cryo_popup' as const,
+      badge: '❄️ Cryo Pop-up',
+      title: 'Cryo',
+      effectSummary: '',
+      gainMultiplier: 1,
+      energyCostMultiplier: 0.6,
+      extraEnergyCost: 0,
+      extraFailureChance: 0,
+      failureChanceMultiplier: 0.75,
+      bonusPrimaryStat: 0,
+      bonusFunds: 0,
+      bonusFans: 0,
+      bonusMorale: 0,
+      autoScoutWeek: false,
+    };
+    const cryoRisk = calculateCampFailureChance(
+      lowStaminaTeam,
+      attackCamp,
+      [],
+      cryoSpotlight
+    );
+    expect(cryoRisk).toBeLessThan(baseRisk);
+
+    // Dilemma with funds/fans/primary boost + Sunday match bonus applies & resets at week end
+    const rivalEvent = CAPTAIN_EVENTS_POOL.find(
+      (e) => e.id === 'cap_event_rival_call_out'
+    )!;
+    const withDilemma: GameState = {
+      ...INITIAL_GAME_STATE,
+      activeCaptainEvent: rivalEvent,
+    };
+    const baseAtk = computeSquadZonePreview(
+      withDilemma.team.players,
+      withDilemma.team.formation,
+      withDilemma.team.tacticalStyle
+    ).attack;
+    const afterResolve = gameReducer(withDilemma, {
+      type: 'RESOLVE_CAPTAIN_EVENT',
+      payload: { choiceId: rivalEvent.choices[0]!.id },
+    });
+    expect(afterResolve.activeCaptainEvent).toBeNull();
+    expect(afterResolve.activeEventMatchBonus?.attackPct).toBe(5);
+
+    const boostedAtk = computeSquadZonePreview(
+      afterResolve.team.players,
+      afterResolve.team.formation,
+      afterResolve.team.tacticalStyle,
+      { eventMatchBonus: afterResolve.activeEventMatchBonus }
+    ).attack;
+    expect(boostedAtk).toBeGreaterThan(baseAtk);
+
+    // Advancing week clears Sunday dilemma buff & rolls new spotlights
+    const nextWeek = gameReducer(afterResolve, { type: 'ADVANCE_WEEK' });
+    expect(nextWeek.activeEventMatchBonus).toBeNull();
+    expect(nextWeek.weeklySpotlights).toHaveLength(2);
+
+    // Anti-repeat filter skips already seen events while pool has unseen events
+    const seenIds = CAPTAIN_EVENTS_POOL.slice(0, -1).map((e) => e.id);
+    const lastRemaining = rollWeeklyCaptainEvent(
+      () => 0,
+      1.0,
+      CAPTAIN_EVENTS_POOL,
+      seenIds
+    );
+    expect(lastRemaining?.id).toBe(
+      CAPTAIN_EVENTS_POOL[CAPTAIN_EVENTS_POOL.length - 1]!.id
+    );
+  });
+
+  it('picks contextual character menu dialogue and updates featured player cleanly', () => {
+    // Switching featured speaker validates roster membership
+    const switched = gameReducer(INITIAL_GAME_STATE, {
+      type: 'SET_FEATURED_PLAYER',
+      payload: { playerId: 'player_05' },
+    });
+    expect(switched.featuredPlayerId).toBe('player_05');
+
+    const ignored = gameReducer(switched, {
+      type: 'SET_FEATURED_PLAYER',
+      payload: { playerId: 'nonexistent' },
+    });
+    expect(ignored.featuredPlayerId).toBe('player_05');
+
+    const keeper = switched.team.players.find((p) => p.id === 'player_05')!;
+    const tiredKeeper = {
+      ...keeper,
+      status: { ...keeper.status, stamina: 38 },
+    };
+
+    // Tired player surfaces tired expression and low_energy dialogue
+    const lowEnergyLine = pickCharacterLine(tiredKeeper, {
+      week: 2,
+      players: switched.team.players.map((p) =>
+        p.id === keeper.id ? tiredKeeper : p
+      ),
+      hasRunCampThisWeek: false,
+      hasPlayedMatchThisWeek: false,
+      lastCampOutcome: null,
+      weeklySpotlights: switched.weeklySpotlights,
+      latestMatch: null,
+    });
+    expect(lowEnergyLine.trigger).toBe('low_energy');
+    expect(lowEnergyLine.expression).toBe('tired');
+
+    // Tap mode avoids immediately repeating the same line when alternatives exist
+    const firstTap = pickCharacterLine(
+      keeper,
+      {
+        week: 2,
+        players: switched.team.players,
+        hasRunCampThisWeek: false,
+        hasPlayedMatchThisWeek: false,
+        lastCampOutcome: null,
+        weeklySpotlights: switched.weeklySpotlights,
+        latestMatch: null,
+      },
+      { mode: 'tap', rng: () => 0 }
+    );
+    const secondTap = pickCharacterLine(
+      keeper,
+      {
+        week: 2,
+        players: switched.team.players,
+        hasRunCampThisWeek: false,
+        hasPlayedMatchThisWeek: false,
+        lastCampOutcome: null,
+        weeklySpotlights: switched.weeklySpotlights,
+        latestMatch: null,
+      },
+      { mode: 'tap', excludeLineId: firstTap.lineId, rng: () => 0 }
+    );
+    expect(secondTap.lineId).not.toBe(firstTap.lineId);
   });
 });
 

@@ -2,6 +2,7 @@ import {
   BossFixturePerk,
   CampaignRunEvaluation,
   CampaignStatus,
+  CampSpotlightKind,
   CaptainEvent,
   CaptainMilestone,
   CaptainStats,
@@ -9,6 +10,7 @@ import {
   DAYS_OF_WEEK,
   DrillDefinition,
   DrillRiskTier,
+  EventMatchBonus,
   FacilityId,
   FormationType,
   GoalkeeperAttributeKey,
@@ -43,6 +45,7 @@ import {
   Team,
   TrainingRegimeId,
   TrainingTask,
+  WeeklyCampSpotlight,
   WeeklyDaySchedule,
   WeeklyPlayerGainReport,
 } from './types';
@@ -924,6 +927,7 @@ export function computeSquadZonePreview(
     opponentFormation?: FormationType;
     activeMatchPrep?: MatchPrepId;
     freshBounce?: boolean;
+    eventMatchBonus?: EventMatchBonus | null;
     highTierDemandScale?: number;
   }
 ): SquadZoneRatings {
@@ -1044,6 +1048,10 @@ export function computeSquadZonePreview(
     playerInGoal && hasPlayerTrait(playerInGoal, 'sweeper_keeper') ? 1.08 : 1.0;
   const traitClutchMult =
     captain && hasPlayerTrait(captain, 'clutch_leader') ? 1.04 : 1.0;
+  const eventAtkMult = 1 + (options?.eventMatchBonus?.attackPct ?? 0) / 100;
+  const eventMidMult = 1 + (options?.eventMatchBonus?.midfieldPct ?? 0) / 100;
+  const eventDefMult = 1 + (options?.eventMatchBonus?.defensePct ?? 0) / 100;
+  const eventPacMult = 1 + (options?.eventMatchBonus?.pacePct ?? 0) / 100;
 
   const sharedZoneMult =
     formationMatchup.multiplier *
@@ -1059,7 +1067,8 @@ export function computeSquadZonePreview(
     sharedZoneMult *
     warRoomBonus *
     freshAttackDefenseBonus *
-    traitAttackMult;
+    traitAttackMult *
+    eventAtkMult;
   const defenseBonus =
     (tactic === 'Attacking' ? 0.89 : tactic === 'Counter' ? 1.1 : 1.02) *
     formationProfile.defenseMult *
@@ -1068,18 +1077,21 @@ export function computeSquadZonePreview(
     warRoomBonus *
     freshAttackDefenseBonus *
     traitDefenseMult *
-    traitKeeperMult;
+    traitKeeperMult *
+    eventDefMult;
   const midfieldBonus =
     (tactic === 'Attacking' ? 1.01 : tactic === 'Counter' ? 0.91 : 1.04) *
     formationProfile.midfieldMult *
     sharedZoneMult *
-    traitMidfieldMult;
+    traitMidfieldMult *
+    eventMidMult;
   const transitionBonus =
     (tactic === 'Counter' ? 1.1 : tactic === 'Attacking' ? 0.96 : 1.02) *
     formationProfile.paceMult *
     sharedZoneMult *
     freshPaceBonus *
-    traitPaceMult;
+    traitPaceMult *
+    eventPacMult;
 
   const activeOutfieldPool = outfielders.length > 0 ? outfielders : team;
   const attackersPool = activeOutfieldPool.filter((p) => {
@@ -1180,6 +1192,7 @@ export function estimateMatchWinProbability(
     bossPerkId?: BossFixturePerk['id'];
     activeMatchPrep?: MatchPrepId;
     freshBounce?: boolean;
+    eventMatchBonus?: EventMatchBonus | null;
   }
 ): {
   winPct: number;
@@ -1208,6 +1221,7 @@ export function estimateMatchWinProbability(
     opponentFormation: options?.opponentFormation,
     activeMatchPrep: options?.activeMatchPrep,
     freshBounce: options?.freshBounce,
+    eventMatchBonus: options?.eventMatchBonus,
     highTierDemandScale: expectedOpponentRating >= 50 ? 0.9 : 1.0,
   });
 
@@ -1497,44 +1511,98 @@ export function evaluateTacticalSynergy(
 }
 
 /**
- * Random weekly trigger that checks if an Uma Musume-style Captain Event fires this week.
+ * Shared helper that boosts a player's primary positional attribute by `amount` points.
+ */
+export function applyPrimaryAttributeBoost(
+  player: Player,
+  amount: number,
+  preferredStat?: OutfieldAttributeKey
+): { updatedPlayer: Player; boostedLabel: string | null } {
+  if (amount <= 0) return { updatedPlayer: player, boostedLabel: null };
+  if (isGoalkeeperPlayer(player)) {
+    const attrs: GoalkeeperAttributes = { ...player.attributes };
+    const gkKey: GoalkeeperAttributeKey =
+      attrs.reflexes <= attrs.positioning ? 'reflexes' : 'positioning';
+    attrs[gkKey] = clamp0To100(attrs[gkKey] + amount);
+    return {
+      updatedPlayer: { ...player, attributes: attrs },
+      boostedLabel: `+${amount} ${gkKey.slice(0, 3).toUpperCase()}`,
+    };
+  }
+  const role = normalizePosition(player.position);
+  const key: OutfieldAttributeKey =
+    preferredStat ??
+    (role === 'FWD'
+      ? 'shooting'
+      : role === 'MID'
+      ? 'passing'
+      : 'defending');
+  const attrs: OutfieldAttributes = { ...player.attributes };
+  attrs[key] = clamp0To100(attrs[key] + amount);
+  return {
+    updatedPlayer: { ...player, attributes: attrs },
+    boostedLabel: `+${amount} ${key.slice(0, 3).toUpperCase()}`,
+  };
+}
+
+/**
+ * Random weekly trigger that checks if an Uma Musume-style Captain / Club Dilemma fires this week,
+ * avoiding repeats until the whole pool has been exhausted.
  */
 export function rollWeeklyCaptainEvent(
   rng: () => number = Math.random,
-  triggerChance: number = 0.45,
-  eventPool: CaptainEvent[] = CAPTAIN_EVENTS_POOL
+  triggerChance: number = 0.65,
+  eventPool: CaptainEvent[] = CAPTAIN_EVENTS_POOL,
+  seenEventIds: string[] = []
 ): CaptainEvent | null {
   if (eventPool.length === 0) return null;
   const triggerRoll = rng();
   if (triggerRoll >= triggerChance) {
     return null;
   }
+  const unseen = eventPool.filter((ev) => !seenEventIds.includes(ev.id));
+  const candidates = unseen.length > 0 ? unseen : eventPool;
   const index = Math.min(
-    eventPool.length - 1,
-    Math.floor(rng() * eventPool.length)
+    candidates.length - 1,
+    Math.floor(rng() * candidates.length)
   );
-  return eventPool[index] ?? null;
+  return candidates[index] ?? null;
 }
 
 /**
- * Pure helper that resolves a player's chosen option on a CaptainEvent.
+ * Pure helper that resolves a player's chosen option on a CaptainEvent / Dilemma.
  */
 export function applyCaptainEventChoice(
   players: Player[],
   event: CaptainEvent,
   choiceId: string
-): { updatedPlayers: Player[]; outcomeLog: string } {
+): {
+  updatedPlayers: Player[];
+  outcomeLog: string;
+  fundsDelta: number;
+  fansDelta: number;
+  reputationDelta: number;
+  nextMatchBonus: EventMatchBonus | null;
+} {
   const choice =
     event.choices.find((c) => c.id === choiceId) ?? event.choices[0];
   if (!choice) {
     return {
       updatedPlayers: players,
       outcomeLog: `[Captain Event] "${event.title}" concluded with no changes.`,
+      fundsDelta: 0,
+      fansDelta: 0,
+      reputationDelta: 0,
+      nextMatchBonus: null,
     };
   }
 
   const captain = players.find((p) => p.isCaptain) ?? players[0];
   const captainId = captain?.id;
+  const fansDelta = choice.rewards.fansDelta ?? 0;
+  const fansPerPlayer =
+    players.length > 0 ? Math.round(fansDelta / players.length) : 0;
+  const primaryBoost = choice.rewards.squadPrimaryBoost ?? 0;
 
   const updatedPlayers: Player[] = players.map((player) => {
     const moraleDelta = choice.rewards.teamMoraleDelta ?? 0;
@@ -1547,17 +1615,25 @@ export function applyCaptainEventChoice(
       morale: clamp0To100(player.status.morale + moraleDelta),
     };
 
-    if (player.id !== captainId) {
+    const boosted =
+      primaryBoost > 0
+        ? applyPrimaryAttributeBoost(player, primaryBoost).updatedPlayer
+        : player;
+
+    const nextFanbase = Math.max(0, boosted.fanbase + fansPerPlayer);
+
+    if (boosted.id !== captainId) {
       return {
-        ...player,
+        ...boosted,
+        fanbase: nextFanbase,
         status: nextStatus,
-        currentMood: player.isBurnedOut
+        currentMood: boosted.isBurnedOut
           ? ('burnout' as const)
           : derivePlayerMood(nextStatus),
       };
     }
 
-    const baseCap: CaptainStats = player.captainStats ?? {
+    const baseCap: CaptainStats = boosted.captainStats ?? {
       confidence: 40,
       passion: 40,
       charisma: 40,
@@ -1572,20 +1648,28 @@ export function applyCaptainEventChoice(
     };
 
     return {
-      ...player,
+      ...boosted,
+      fanbase: nextFanbase,
       status: nextStatus,
-      currentMood: player.isBurnedOut
+      currentMood: boosted.isBurnedOut
         ? ('burnout' as const)
         : derivePlayerMood(nextStatus),
       captainStats: nextCaptainStats,
     };
   });
 
-  const outcomeLog = `[CAPTAIN EVENT • ${captain?.name ?? 'Captain'}] "${
+  const outcomeLog = `[DILEMMA • ${captain?.name ?? 'Captain'}] "${
     event.title
   }" → ${choice.outcomeText}`;
 
-  return { updatedPlayers, outcomeLog };
+  return {
+    updatedPlayers,
+    outcomeLog,
+    fundsDelta: choice.rewards.fundsDelta ?? 0,
+    fansDelta,
+    reputationDelta: choice.rewards.reputationDelta ?? 0,
+    nextMatchBonus: choice.rewards.nextMatchBonus ?? null,
+  };
 }
 
 /**
@@ -2012,10 +2096,194 @@ export function getSquadEnergySummary(players: Player[]): {
   };
 }
 
+const TRAINING_CAMP_IDS: SquadCampId[] = [
+  'camp_attack',
+  'camp_defense',
+  'camp_possession_gk',
+  'camp_scrimmage',
+];
+
+const SPOTLIGHT_BLUEPRINTS: Record<
+  CampSpotlightKind,
+  Omit<WeeklyCampSpotlight, 'campId'>
+> = {
+  legend_visit: {
+    kind: 'legend_visit',
+    badge: '🌟 Guest Pro',
+    title: 'Guest Tactician Visit',
+    effectSummary: '+35% Camp Gains & +4 Cap Confidence',
+    gainMultiplier: 1.35,
+    energyCostMultiplier: 1.0,
+    extraEnergyCost: 0,
+    extraFailureChance: 0,
+    failureChanceMultiplier: 1.0,
+    bonusPrimaryStat: 0,
+    bonusFunds: 0,
+    bonusFans: 0,
+    bonusMorale: 1,
+    autoScoutWeek: false,
+    captainBonus: { confidence: 4 },
+  },
+  cryo_popup: {
+    kind: 'cryo_popup',
+    badge: '❄️ Cryo Pop-up',
+    title: 'Free Cryo Recovery Van',
+    effectSummary: '-40% Energy & Stress Drain, -25% Slump Risk',
+    gainMultiplier: 1.0,
+    energyCostMultiplier: 0.6,
+    extraEnergyCost: 0,
+    extraFailureChance: 0,
+    failureChanceMultiplier: 0.75,
+    bonusPrimaryStat: 0,
+    bonusFunds: 0,
+    bonusFans: 0,
+    bonusMorale: 2,
+    autoScoutWeek: false,
+  },
+  trait_spark: {
+    kind: 'trait_spark',
+    badge: '⚡ Trait Spark',
+    title: 'Specialist Trait Clinic',
+    effectSummary: '+1 Bonus Primary Stat per Starter & +4 Cap Passion',
+    gainMultiplier: 1.1,
+    energyCostMultiplier: 1.0,
+    extraEnergyCost: 0,
+    extraFailureChance: 0,
+    failureChanceMultiplier: 1.0,
+    bonusPrimaryStat: 1,
+    bonusFunds: 0,
+    bonusFans: 0,
+    bonusMorale: 0,
+    autoScoutWeek: false,
+    captainBonus: { passion: 4 },
+  },
+  sponsor_showcase: {
+    kind: 'sponsor_showcase',
+    badge: '📺 Broadcast',
+    title: 'Live Practice Showcase',
+    effectSummary: '+¥1,400 Cash, +180 Squad Fans & +4 Cap Charisma',
+    gainMultiplier: 1.0,
+    energyCostMultiplier: 1.0,
+    extraEnergyCost: 0,
+    extraFailureChance: 0,
+    failureChanceMultiplier: 1.0,
+    bonusPrimaryStat: 0,
+    bonusFunds: 1400,
+    bonusFans: 180,
+    bonusMorale: 2,
+    autoScoutWeek: false,
+    captainBonus: { charisma: 4 },
+  },
+  double_intensity: {
+    kind: 'double_intensity',
+    badge: '🔥 Double Shift',
+    title: 'Rainbow Double-Shift Surge',
+    effectSummary: '+55% Camp Gains (+6% Slump Risk, +4 Energy Drain)',
+    gainMultiplier: 1.55,
+    energyCostMultiplier: 1.0,
+    extraEnergyCost: 4,
+    extraFailureChance: 0.06,
+    failureChanceMultiplier: 1.0,
+    bonusPrimaryStat: 0,
+    bonusFunds: 0,
+    bonusFans: 0,
+    bonusMorale: 0,
+    autoScoutWeek: false,
+    captainBonus: { passion: 3, confidence: 2 },
+  },
+  scout_clinic: {
+    kind: 'scout_clinic',
+    badge: '📋 Video Scout',
+    title: 'Opponent Video Clinic',
+    effectSummary: 'Free Week Scout (or +¥400) & +20% Camp Gains',
+    gainMultiplier: 1.2,
+    energyCostMultiplier: 1.0,
+    extraEnergyCost: 0,
+    extraFailureChance: 0,
+    failureChanceMultiplier: 1.0,
+    bonusPrimaryStat: 0,
+    bonusFunds: 0,
+    bonusFans: 0,
+    bonusMorale: 0,
+    autoScoutWeek: true,
+    captainBonus: { confidence: 3 },
+  },
+  miracle_spa: {
+    kind: 'miracle_spa',
+    badge: '🫧 Miracle Spa',
+    title: 'Pro Hydrotherapy Retreat',
+    effectSummary: '+14 Extra Recovery Stamina, +5 Morale & +4 Cap Charisma',
+    gainMultiplier: 1.0,
+    energyCostMultiplier: 1.0,
+    extraEnergyCost: 0,
+    extraFailureChance: 0,
+    failureChanceMultiplier: 0.0,
+    bonusPrimaryStat: 0,
+    bonusFunds: 0,
+    bonusFans: 60,
+    bonusMorale: 5,
+    autoScoutWeek: false,
+    captainBonus: { charisma: 4 },
+  },
+};
+
+const TRAINING_SPOTLIGHT_KINDS: CampSpotlightKind[] = [
+  'legend_visit',
+  'cryo_popup',
+  'trait_spark',
+  'sponsor_showcase',
+  'double_intensity',
+  'scout_clinic',
+];
+
+/**
+ * Rolls 2 distinct Uma Musume-style weekly practice spotlights across the 5 camps
+ * so every Monday presents a fresh risk/reward & build optimization puzzle.
+ */
+export function rollWeeklyCampSpotlights(
+  week: number,
+  rng: () => number = Math.random
+): WeeklyCampSpotlight[] {
+  const pickIndex = (len: number) =>
+    Math.min(len - 1, Math.floor(rng() * len));
+
+  const firstCamp = TRAINING_CAMP_IDS[pickIndex(TRAINING_CAMP_IDS.length)]!;
+  const firstKind =
+    TRAINING_SPOTLIGHT_KINDS[pickIndex(TRAINING_SPOTLIGHT_KINDS.length)]!;
+
+  // 25% chance on non-opening weeks (or Week 2+) that the 2nd spotlight lands on Recovery
+  const allowRecoverySpa = week >= 2 && rng() < 0.25;
+  const remainingTrainingCamps = TRAINING_CAMP_IDS.filter(
+    (c) => c !== firstCamp
+  );
+  const secondCamp: SquadCampId = allowRecoverySpa
+    ? 'camp_recovery'
+    : remainingTrainingCamps[pickIndex(remainingTrainingCamps.length)]!;
+
+  let secondKind: CampSpotlightKind = 'miracle_spa';
+  if (secondCamp !== 'camp_recovery') {
+    const remainingKinds = TRAINING_SPOTLIGHT_KINDS.filter(
+      (k) => k !== firstKind
+    );
+    secondKind = remainingKinds[pickIndex(remainingKinds.length)]!;
+  }
+
+  return [
+    { campId: firstCamp, ...SPOTLIGHT_BLUEPRINTS[firstKind] },
+    { campId: secondCamp, ...SPOTLIGHT_BLUEPRINTS[secondKind] },
+  ];
+}
+
+export const DEFAULT_WEEK1_SPOTLIGHTS: WeeklyCampSpotlight[] = [
+  { campId: 'camp_attack', ...SPOTLIGHT_BLUEPRINTS.legend_visit },
+  { campId: 'camp_possession_gk', ...SPOTLIGHT_BLUEPRINTS.cryo_popup },
+];
+
 export function calculateCampFailureChance(
   players: Player[],
   camp: SquadCampDefinition,
-  unlockedFacilities: FacilityId[] = []
+  unlockedFacilities: FacilityId[] = [],
+  spotlight?: WeeklyCampSpotlight | null
 ): number {
   if (camp.id === 'camp_recovery' || camp.baseFailureRate <= 0) {
     return 0;
@@ -2032,7 +2300,12 @@ export function calculateCampFailureChance(
     avgStamina,
     captainCharisma
   );
-  return Math.max(0.02, Math.min(0.85, raw * (hasRehabCenter ? 0.75 : 1.0)));
+  const spotMult = spotlight?.failureChanceMultiplier ?? 1.0;
+  const spotExtra = spotlight?.extraFailureChance ?? 0;
+  return Math.max(
+    0.02,
+    Math.min(0.85, raw * (hasRehabCenter ? 0.75 : 1.0) * spotMult + spotExtra)
+  );
 }
 
 /**
@@ -2045,6 +2318,8 @@ export function processSquadCampWeek(
   rng: () => number = Math.random,
   options?: {
     unlockedFacilities?: FacilityId[];
+    spotlight?: WeeklyCampSpotlight | null;
+    seenEventIds?: string[];
   }
 ): {
   updatedPlayers: Player[];
@@ -2054,6 +2329,9 @@ export function processSquadCampWeek(
   playerReports: WeeklyPlayerGainReport[];
 } {
   const unlockedFacilities = options?.unlockedFacilities ?? [];
+  const spotlight =
+    options?.spotlight?.campId === camp.id ? options.spotlight : null;
+  const seenEventIds = options?.seenEventIds ?? [];
   const hasRehabCenter = unlockedFacilities.includes('medical_rehab_center');
   const hasTacticalSuite = unlockedFacilities.includes(
     'tactical_analysis_suite'
@@ -2073,15 +2351,27 @@ export function processSquadCampWeek(
 
   // 1. RECOVERY CAMP
   if (camp.id === 'camp_recovery') {
-    const staminaGain = Math.abs(camp.energyCost) + (hasRehabCenter ? 8 : 0);
-    const stressDrop = Math.abs(camp.stressDelta) + (hasRehabCenter ? 8 : 0);
+    const isSpaSpotlight = spotlight?.kind === 'miracle_spa';
+    const staminaGain =
+      Math.abs(camp.energyCost) +
+      (hasRehabCenter ? 8 : 0) +
+      (isSpaSpotlight ? 14 : 0);
+    const stressDrop =
+      Math.abs(camp.stressDelta) +
+      (hasRehabCenter ? 8 : 0) +
+      (isSpaSpotlight ? 6 : 0);
     const injuryHealAmount = hasRehabCenter ? 2 : 1;
+    const moraleGain = 8 + (spotlight?.bonusMorale ?? 0);
+    const fansPerPlayer =
+      spotlight && spotlight.bonusFans > 0 && players.length > 0
+        ? Math.floor(spotlight.bonusFans / players.length)
+        : 0;
 
     const updatedPlayers = players.map((p) => {
       const beforeEnergy = getPlayerEnergy(p);
       const nextStamina = clamp0To100(p.status.stamina + staminaGain);
       const nextStress = clamp0To100(p.status.stress - stressDrop);
-      const nextMorale = clamp0To100(p.status.morale + 8);
+      const nextMorale = clamp0To100(p.status.morale + moraleGain);
       const nextStatus: PlayerStatus = {
         stamina: nextStamina,
         stress: nextStress,
@@ -2092,8 +2382,25 @@ export function processSquadCampWeek(
       const prevInjury = p.injuryWeeksRemaining ?? 0;
       const nextInjury = Math.max(0, prevInjury - injuryHealAmount);
 
+      let nextCaptainStats = p.captainStats;
+      if (p.isCaptain && p.captainStats && spotlight?.captainBonus) {
+        nextCaptainStats = {
+          confidence: clamp0To100(
+            p.captainStats.confidence + (spotlight.captainBonus.confidence ?? 0)
+          ),
+          passion: clamp0To100(
+            p.captainStats.passion + (spotlight.captainBonus.passion ?? 0)
+          ),
+          charisma: clamp0To100(
+            p.captainStats.charisma + (spotlight.captainBonus.charisma ?? 0)
+          ),
+        };
+      }
+
       const candidate: Player = {
         ...p,
+        fanbase: p.fanbase + fansPerPlayer,
+        captainStats: nextCaptainStats,
         status: nextStatus,
         form: clamp0To100(p.form + 8),
         isBurnedOut: p.isBurnedOut ? !recoveredBurnout : false,
@@ -2111,6 +2418,7 @@ export function processSquadCampWeek(
         '+8 Form',
         '⚡ Fresh Bounce',
       ];
+      if (isSpaSpotlight) gains.push('🫧 Spa');
       if (prevInjury > 0 && nextInjury === 0) {
         gains.push('🩹 Injury Cleared');
       }
@@ -2129,6 +2437,11 @@ export function processSquadCampWeek(
       return updatedPlayer;
     });
 
+    if (spotlight) {
+      summaryLogs.push(
+        `[${spotlight.badge.toUpperCase()}] ${spotlight.title} triggered on Recovery Week (${spotlight.effectSummary})!`
+      );
+    }
     summaryLogs.push(
       `[RECOVERY WEEK] Full Squad Recovery completed! +${staminaGain} Energy, -${stressDrop} Stress, +8 Form & ⚡ Fresh Bounce armed for Sunday (+4% Pace, +2% ATK/DEF).`
     );
@@ -2136,7 +2449,12 @@ export function processSquadCampWeek(
     return {
       updatedPlayers,
       summaryLogs,
-      triggeredCaptainEvent: rollWeeklyCaptainEvent(rng),
+      triggeredCaptainEvent: rollWeeklyCaptainEvent(
+        rng,
+        0.65,
+        CAPTAIN_EVENTS_POOL,
+        seenEventIds
+      ),
       campOutcome: 'recovery',
       playerReports,
     };
@@ -2146,7 +2464,8 @@ export function processSquadCampWeek(
   const failChance = calculateCampFailureChance(
     players,
     camp,
-    unlockedFacilities
+    unlockedFacilities,
+    spotlight
   );
   const isCampFailed = rng() < failChance;
 
@@ -2223,7 +2542,12 @@ export function processSquadCampWeek(
     return {
       updatedPlayers,
       summaryLogs,
-      triggeredCaptainEvent: rollWeeklyCaptainEvent(rng),
+      triggeredCaptainEvent: rollWeeklyCaptainEvent(
+        rng,
+        0.65,
+        CAPTAIN_EVENTS_POOL,
+        seenEventIds
+      ),
       campOutcome: 'slump',
       playerReports,
     };
@@ -2232,6 +2556,15 @@ export function processSquadCampWeek(
   // 3. SUCCESS OR BREAKTHROUGH (15% chance for 1.35x gains)
   const isBreakthrough = rng() < 0.15;
   const breakthroughMult = isBreakthrough ? 1.35 : 1.0;
+  const spotlightGainMult = spotlight?.gainMultiplier ?? 1.0;
+  const spotlightEnergyMult = spotlight?.energyCostMultiplier ?? 1.0;
+  const spotlightExtraEnergy = spotlight?.extraEnergyCost ?? 0;
+  const spotlightBonusPrimary = spotlight?.bonusPrimaryStat ?? 0;
+  const spotlightFansPerPlayer =
+    spotlight && spotlight.bonusFans > 0 && players.length > 0
+      ? Math.floor(spotlight.bonusFans / players.length)
+      : 0;
+  const spotlightMorale = spotlight?.bonusMorale ?? 0;
 
   const updatedPlayers = players.map((p) => {
     const beforeEnergy = getPlayerEnergy(p);
@@ -2242,12 +2575,14 @@ export function processSquadCampWeek(
     const capStressFactor = isTeammate ? captainBuffs.stressGainFactor : 1.0;
 
     const staminaLoss = Math.max(
-      6,
-      Math.round(camp.energyCost * capStamFactor) - (hasRehabCenter ? 3 : 0)
+      4,
+      Math.round(camp.energyCost * capStamFactor * spotlightEnergyMult) +
+        spotlightExtraEnergy -
+        (hasRehabCenter ? 3 : 0)
     );
     const stressGain = Math.max(
-      4,
-      Math.round(camp.stressDelta * capStressFactor)
+      2,
+      Math.round(camp.stressDelta * capStressFactor * spotlightEnergyMult)
     );
 
     const nextStamina = clamp0To100(p.status.stamina - staminaLoss);
@@ -2255,12 +2590,14 @@ export function processSquadCampWeek(
     const nextStatus: PlayerStatus = {
       stamina: nextStamina,
       stress: nextStress,
-      morale: clamp0To100(p.status.morale + (isBreakthrough ? 4 : 1)),
+      morale: clamp0To100(
+        p.status.morale + (isBreakthrough ? 4 : 1) + spotlightMorale
+      ),
     };
     const hitBurnout = nextStress >= 100;
 
     const variance = 0.88 + rng() * 0.24;
-    const baseGain = 3.0 * breakthroughMult * variance;
+    const baseGain = 3.0 * breakthroughMult * spotlightGainMult * variance;
 
     const rolePreview = getCampRolePreview(camp.id, p.position);
     let facMult = 1.0 + (hasSportsScienceLab ? 0.1 : 0);
@@ -2277,28 +2614,20 @@ export function processSquadCampWeek(
 
     let nextCaptainStats = p.captainStats;
     if (p.isCaptain && p.captainStats) {
-      if (camp.id === 'camp_attack') {
-        nextCaptainStats = {
-          ...p.captainStats,
-          confidence: clamp0To100(p.captainStats.confidence + 3),
-        };
-      } else if (camp.id === 'camp_defense') {
-        nextCaptainStats = {
-          ...p.captainStats,
-          passion: clamp0To100(p.captainStats.passion + 3),
-        };
-      } else if (camp.id === 'camp_possession_gk') {
-        nextCaptainStats = {
-          ...p.captainStats,
-          charisma: clamp0To100(p.captainStats.charisma + 3),
-        };
-      } else if (camp.id === 'camp_scrimmage') {
-        nextCaptainStats = {
-          confidence: clamp0To100(p.captainStats.confidence + 3),
-          passion: clamp0To100(p.captainStats.passion + 3),
-          charisma: clamp0To100(p.captainStats.charisma + 2),
-        };
+      let addConf = camp.id === 'camp_attack' || camp.id === 'camp_scrimmage' ? 3 : 0;
+      let addPas = camp.id === 'camp_defense' || camp.id === 'camp_scrimmage' ? 3 : 0;
+      let addCha =
+        camp.id === 'camp_possession_gk' ? 3 : camp.id === 'camp_scrimmage' ? 2 : 0;
+      if (spotlight?.captainBonus) {
+        addConf += spotlight.captainBonus.confidence ?? 0;
+        addPas += spotlight.captainBonus.passion ?? 0;
+        addCha += spotlight.captainBonus.charisma ?? 0;
       }
+      nextCaptainStats = {
+        confidence: clamp0To100(p.captainStats.confidence + addConf),
+        passion: clamp0To100(p.captainStats.passion + addPas),
+        charisma: clamp0To100(p.captainStats.charisma + addCha),
+      };
     }
 
     if (isGoalkeeperPlayer(p)) {
@@ -2320,11 +2649,9 @@ export function processSquadCampWeek(
           gainLogs.push(`+${gain} ${k.slice(0, 3).toUpperCase()}`);
         }
       }
-      summaryLogs.push(
-        `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (GK • ${rolePreview.campMultiplier}x): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
-      );
-      const candidate: Player = {
+      let candidate: Player = {
         ...p,
+        fanbase: p.fanbase + spotlightFansPerPlayer,
         attributes: gkAttrs,
         captainStats: nextCaptainStats,
         status: nextStatus,
@@ -2334,6 +2661,14 @@ export function processSquadCampWeek(
           ? ('burnout' as const)
           : derivePlayerMood(nextStatus),
       };
+      if (spotlightBonusPrimary > 0) {
+        const spark = applyPrimaryAttributeBoost(candidate, spotlightBonusPrimary);
+        candidate = spark.updatedPlayer;
+        if (spark.boostedLabel) gainLogs.push(`⚡ ${spark.boostedLabel}`);
+      }
+      summaryLogs.push(
+        `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (GK • ${rolePreview.campMultiplier}x): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
+      );
       const { updatedPlayer, newlyUnlocked } = evaluatePlayerTraits(candidate);
       if (newlyUnlocked.length > 0) {
         summaryLogs.push(
@@ -2370,12 +2705,9 @@ export function processSquadCampWeek(
       }
     }
 
-    summaryLogs.push(
-      `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (${p.position} • ${rolePreview.campMultiplier}x): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
-    );
-
-    const candidate: Player = {
+    let candidate: Player = {
       ...p,
+      fanbase: p.fanbase + spotlightFansPerPlayer,
       attributes: attrs,
       captainStats: nextCaptainStats,
       status: nextStatus,
@@ -2385,6 +2717,16 @@ export function processSquadCampWeek(
         ? ('burnout' as const)
         : derivePlayerMood(nextStatus),
     };
+    if (spotlightBonusPrimary > 0) {
+      const spark = applyPrimaryAttributeBoost(candidate, spotlightBonusPrimary);
+      candidate = spark.updatedPlayer;
+      if (spark.boostedLabel) gainLogs.push(`⚡ ${spark.boostedLabel}`);
+    }
+
+    summaryLogs.push(
+      `[${isBreakthrough ? 'BREAKTHROUGH' : 'CAMP'}] ${p.name} (${p.position} • ${rolePreview.campMultiplier}x): ${gainLogs.join(', ') || '+0'} | Energy ${nextStamina}%`
+    );
+
     const { updatedPlayer, newlyUnlocked } = evaluatePlayerTraits(candidate);
     if (newlyUnlocked.length > 0) {
       summaryLogs.push(
@@ -2401,16 +2743,27 @@ export function processSquadCampWeek(
     return updatedPlayer;
   });
 
+  if (spotlight) {
+    summaryLogs.unshift(
+      `[${spotlight.badge.toUpperCase()}] ${spotlight.title} triggered on ${camp.title}: ${spotlight.effectSummary}!`
+    );
+  }
+
   if (isBreakthrough) {
     summaryLogs.unshift(
-      `✨ [BREAKTHROUGH CAMP!] The squad clicked in ${camp.title} (+45% bonus gains)!`
+      `✨ [BREAKTHROUGH CAMP!] The squad clicked in ${camp.title} (+35% bonus gains)!`
     );
   }
 
   return {
     updatedPlayers,
     summaryLogs,
-    triggeredCaptainEvent: rollWeeklyCaptainEvent(rng),
+    triggeredCaptainEvent: rollWeeklyCaptainEvent(
+      rng,
+      0.65,
+      CAPTAIN_EVENTS_POOL,
+      seenEventIds
+    ),
     campOutcome: isBreakthrough ? 'breakthrough' : 'success',
     playerReports,
   };
@@ -3523,6 +3876,7 @@ function evaluatePhaseMatchup(
     bossPerkId?: BossFixturePerk['id'];
     activeMatchPrep?: MatchPrepId;
     freshBounce?: boolean;
+    eventMatchBonus?: EventMatchBonus | null;
   }
 ) {
   const bossPerk = applyBossMatchPerkModifier(oppZones, options?.bossPerkId, {
@@ -3545,6 +3899,7 @@ function evaluatePhaseMatchup(
     opponentFormation: options?.opponentFormation,
     activeMatchPrep: options?.activeMatchPrep,
     freshBounce: options?.freshBounce,
+    eventMatchBonus: options?.eventMatchBonus,
     highTierDemandScale: oppOverall >= 50 ? 0.9 : 1.0,
   });
 
@@ -3913,6 +4268,7 @@ export function simulateMatch(
     bossPerkId?: BossFixturePerk['id'];
     activeMatchPrep?: MatchPrepId;
     freshBounce?: boolean;
+    eventMatchBonus?: EventMatchBonus | null;
     opponentZones?: OpponentZoneRatings;
     unlockedFacilities?: FacilityId[];
     disableWeekScaling?: boolean;
@@ -3994,6 +4350,7 @@ export function simulateMatch(
       bossPerkId: options?.bossPerkId,
       activeMatchPrep: options?.activeMatchPrep,
       freshBounce: options?.freshBounce,
+      eventMatchBonus: options?.eventMatchBonus,
     }
   );
 
@@ -4032,6 +4389,11 @@ export function simulateMatch(
   if (options?.freshBounce) {
     logMessages.push(
       `04' - ⚡ FRESH BOUNCE: Rested legs fly out of the tunnel (+4% Pace, +2% Attack & Defense)!`
+    );
+  }
+  if (options?.eventMatchBonus) {
+    logMessages.push(
+      `05' - 🎯 DILEMMA EDGE: ${options.eventMatchBonus.label} kicks in!`
     );
   }
 
@@ -4185,6 +4547,7 @@ export function simulateFirstHalf(
     bossPerkId?: BossFixturePerk['id'];
     activeMatchPrep?: MatchPrepId;
     freshBounce?: boolean;
+    eventMatchBonus?: EventMatchBonus | null;
     opponentZones?: OpponentZoneRatings;
     unlockedFacilities?: FacilityId[];
     disableWeekScaling?: boolean;
@@ -4229,6 +4592,7 @@ export function simulateFirstHalf(
       bossPerkId: options?.bossPerkId,
       activeMatchPrep: options?.activeMatchPrep,
       freshBounce: options?.freshBounce,
+      eventMatchBonus: options?.eventMatchBonus,
     }
   );
 
@@ -4300,6 +4664,9 @@ export function simulateFirstHalf(
           `04' - ⚡ FRESH BOUNCE: Rested squad speed boost active (+4% Pace, +2% ATK/DEF)!`,
         ]
       : []),
+    ...(options?.eventMatchBonus
+      ? [`05' - 🎯 DILEMMA EDGE: ${options.eventMatchBonus.label} active!`]
+      : []),
     firstHalfPhase.statChecks[0]!.passed
       ? `14' - Midfield edge won by ${firstHalfPhase.playmaker.name} (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`
       : `14' - Tight midfield press forces ${firstHalfPhase.playmaker.name} deep (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`,
@@ -4321,6 +4688,7 @@ export function simulateFirstHalf(
     bossPerkId: options?.bossPerkId,
     activeMatchPrep: options?.activeMatchPrep,
     freshBounce: options?.freshBounce,
+    eventMatchBonus: options?.eventMatchBonus ?? undefined,
     tactic,
     formation,
     participatingPlayerIds: team.map((p) => p.id),
@@ -4395,6 +4763,7 @@ export function resolveSecondHalf(
       bossPerkId: halftime.bossPerkId,
       activeMatchPrep: halftime.activeMatchPrep,
       freshBounce: halftime.freshBounce,
+      eventMatchBonus: halftime.eventMatchBonus,
     }
   );
 

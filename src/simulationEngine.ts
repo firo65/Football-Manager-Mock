@@ -1428,10 +1428,15 @@ export function evaluateTacticalSynergy(
     (r) => r === 'FWD' || r === 'MID'
   ).length;
 
-  const outOfPositionCount = team.filter(
-    (p) =>
-      normalizePosition(p.assignedPosition ?? p.position) !==
-      normalizePosition(p.position)
+  const roleFits = team.map((p) => getPlayerRoleFit(p));
+  const hardMismatchCount = roleFits.filter(
+    (rf) => rf.tier === 'distant' || rf.tier === 'gk_mismatch'
+  ).length;
+  const adjacentFlexCount = roleFits.filter(
+    (rf) => rf.tier === 'adjacent'
+  ).length;
+  const outOfPositionCount = roleFits.filter(
+    (rf) => rf.tier !== 'natural'
   ).length;
 
   let synergyMultiplier = 1.0;
@@ -1457,18 +1462,22 @@ export function evaluateTacticalSynergy(
     synergyMultiplier -= 0.12;
     notes.push('No Attackers (-12%)');
   }
-  if (outOfPositionCount > 0) {
-    const pen = Math.min(0.2, outOfPositionCount * 0.05);
+  if (hardMismatchCount > 0) {
+    const pen = Math.min(0.2, hardMismatchCount * 0.05);
     synergyMultiplier -= pen;
-    defensePlacementMultiplier *= Math.max(0.75, 1 - outOfPositionCount * 0.08);
-    notes.push(`${outOfPositionCount} Out-of-Pos (-${Math.round(pen * 100)}%)`);
+    defensePlacementMultiplier *= Math.max(0.75, 1 - hardMismatchCount * 0.08);
+    notes.push(`${hardMismatchCount} Role Mismatch (-${Math.round(pen * 100)}%)`);
+  }
+  if (adjacentFlexCount > 0) {
+    synergyMultiplier -= adjacentFlexCount * 0.01;
+    notes.push(`${adjacentFlexCount} Flex Shift`);
   }
 
   if (
     hasTrueKeeperInGoal &&
     defCount >= 1 &&
     fwdOrMidCount >= 1 &&
-    outOfPositionCount === 0 &&
+    hardMismatchCount === 0 &&
     team.length >= 4
   ) {
     synergyMultiplier += 0.06;
@@ -1586,14 +1595,224 @@ export function applyCaptainEventChoice(
  * - Deploying an outfielder in `'GK'` or a `'GK'` outfield applies a heavy mismatch penalty (0.45x).
  * - Deploying an outfielder in the wrong outfield slot (e.g. FWD in DEF) applies a positional penalty (0.72x).
  */
-export function calculatePlayerPositionalRating(player: Player): number {
-  const activeRole = normalizePosition(
-    player.assignedPosition ?? player.position
-  );
+export type RoleFitTier =
+  | 'natural'
+  | 'secondary'
+  | 'adjacent'
+  | 'distant'
+  | 'gk_mismatch';
+
+export interface PlayerRoleFit {
+  targetRole: PlayerPosition;
+  naturalRole: PlayerPosition;
+  tier: RoleFitTier;
+  placementMultiplier: number;
+  fitPct: number;
+  statTilt: Partial<Record<OutfieldAttributeKey, number>>;
+  label: string;
+  tiltSummary: string;
+}
+
+const ADJACENT_ROLE_TILTS: Record<
+  string,
+  {
+    statTilt: Partial<Record<OutfieldAttributeKey, number>>;
+    tiltSummary: string;
+  }
+> = {
+  'DEF->MID': {
+    statTilt: { passing: 1.12, pace: 1.08, defending: 0.85 },
+    tiltSummary: '+12% PAS, +8% PAC / -15% DEF',
+  },
+  'MID->DEF': {
+    statTilt: { defending: 1.12, physical: 1.08, shooting: 0.85, passing: 0.88 },
+    tiltSummary: '+12% DEF, +8% PHY / -15% SHO, -12% PAS',
+  },
+  'MID->FWD': {
+    statTilt: { shooting: 1.12, pace: 1.08, defending: 0.85, passing: 0.88 },
+    tiltSummary: '+12% SHO, +8% PAC / -15% DEF, -12% PAS',
+  },
+  'FWD->MID': {
+    statTilt: { passing: 1.12, defending: 1.06, shooting: 0.85 },
+    tiltSummary: '+12% PAS, +6% DEF / -15% SHO',
+  },
+  'DEF->FWD': {
+    statTilt: { shooting: 1.15, pace: 1.06, defending: 0.88 },
+    tiltSummary: '+15% SHO, +6% PAC / -12% DEF',
+  },
+  'FWD->DEF': {
+    statTilt: { defending: 1.15, physical: 1.06, shooting: 0.88 },
+    tiltSummary: '+15% DEF, +6% PHY / -12% SHO',
+  },
+};
+
+export function getPlayerRoleFit(
+  player: Player,
+  targetRoleOverride?: PlayerPosition
+): PlayerRoleFit {
   const naturalRole = normalizePosition(player.position);
+  const targetRole = normalizePosition(
+    targetRoleOverride ?? player.assignedPosition ?? player.position
+  );
+
+  if (targetRole === naturalRole) {
+    return {
+      targetRole,
+      naturalRole,
+      tier: 'natural',
+      placementMultiplier: 1.0,
+      fitPct: 100,
+      statTilt: {},
+      label: 'Natural',
+      tiltSummary: '100% Natural Fit',
+    };
+  }
+
+  if (targetRole === 'GK' || naturalRole === 'GK') {
+    return {
+      targetRole,
+      naturalRole,
+      tier: 'gk_mismatch',
+      placementMultiplier: 0.45,
+      fitPct: 45,
+      statTilt: {},
+      label: 'GK Mismatch',
+      tiltSummary: '-55% Out-of-Goal Penalty',
+    };
+  }
+
+  const pairKey = `${naturalRole}->${targetRole}`;
+  const isSecondary = Boolean(player.secondaryPositions?.includes(targetRole));
+  if (isSecondary) {
+    const tilt = ADJACENT_ROLE_TILTS[pairKey];
+    return {
+      targetRole,
+      naturalRole,
+      tier: 'secondary',
+      placementMultiplier: 0.97,
+      fitPct: 97,
+      statTilt: tilt?.statTilt ?? {},
+      label: 'Dual-Role',
+      tiltSummary: tilt?.tiltSummary ?? '97% Secondary Fit',
+    };
+  }
+
+  const isAdjacent =
+    (naturalRole === 'DEF' && targetRole === 'MID') ||
+    (naturalRole === 'MID' && targetRole === 'DEF') ||
+    (naturalRole === 'MID' && targetRole === 'FWD') ||
+    (naturalRole === 'FWD' && targetRole === 'MID');
+
+  if (isAdjacent) {
+    const tilt = ADJACENT_ROLE_TILTS[pairKey];
+    return {
+      targetRole,
+      naturalRole,
+      tier: 'adjacent',
+      placementMultiplier: 0.92,
+      fitPct: 92,
+      statTilt: tilt?.statTilt ?? {},
+      label: 'Flex Fit',
+      tiltSummary: tilt?.tiltSummary ?? '92% Adjacent Flex',
+    };
+  }
+
+  return {
+    targetRole,
+    naturalRole,
+    tier: 'distant',
+    placementMultiplier: 0.72,
+    fitPct: 72,
+    statTilt: {},
+    label: 'Mismatch',
+    tiltSummary: '-28% Distant Role Penalty',
+  };
+}
+
+export function getFormationRequiredRoles(
+  formation: FormationType
+): PlayerPosition[] {
+  switch (formation) {
+    case '1-2-2':
+      return ['GK', 'DEF', 'DEF', 'FWD', 'FWD'];
+    case '1-1-2-1':
+      return ['GK', 'DEF', 'MID', 'MID', 'FWD'];
+    case '1-1-1-2':
+      return ['GK', 'DEF', 'MID', 'FWD', 'FWD'];
+    case '1-2-1-1':
+    default:
+      return ['GK', 'DEF', 'DEF', 'MID', 'FWD'];
+  }
+}
+
+/**
+ * Maps players onto the active formation's 5 slots:
+ * 1) Locks natural-role fits first,
+ * 2) Picks the best-fitting flex candidate (by role fit, then projected positional rating)
+ *    for any remaining formation slot.
+ */
+export function autoAssignPlayersToFormation(
+  players: Player[],
+  formation: FormationType
+): Player[] {
+  if (players.length === 0) return players;
+  const requiredSlots = getFormationRequiredRoles(formation);
+  const remainingSlots = [...requiredSlots];
+  const assignments = new Map<string, PlayerPosition>();
+
+  // Pass 1: Natural role matches
+  for (const player of players) {
+    const nat = normalizePosition(player.position);
+    const slotIdx = remainingSlots.indexOf(nat);
+    if (slotIdx !== -1) {
+      assignments.set(player.id, nat);
+      remainingSlots.splice(slotIdx, 1);
+    }
+  }
+
+  // Pass 2: Best flex candidate for each remaining slot
+  const unassigned = players.filter((p) => !assignments.has(p.id));
+  for (const slot of remainingSlots) {
+    if (unassigned.length === 0) break;
+    let bestIdx = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < unassigned.length; i += 1) {
+      const candidate = unassigned[i]!;
+      const fit = getPlayerRoleFit(candidate, slot);
+      const projected = calculatePlayerPositionalRating({
+        ...candidate,
+        assignedPosition: slot,
+      });
+      const score = fit.placementMultiplier * 1000 + projected;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    const chosen = unassigned.splice(bestIdx, 1)[0]!;
+    assignments.set(chosen.id, slot);
+  }
+
+  return players.map((p) => ({
+    ...p,
+    assignedPosition: assignments.get(p.id) ?? p.assignedPosition ?? p.position,
+  }));
+}
+
+/**
+ * Calculates a player's effective match rating (0-100) for their currently assigned role.
+ * - Natural role: 1.00x
+ * - Secondary / Dual-Role: 0.97x + role-specific stat tilt
+ * - Adjacent Flex (DEF<->MID, MID<->FWD): 0.92x + temporary matchday stat tilt
+ * - Distant Outfield (DEF<->FWD): 0.72x
+ * - Outfielder in GK or GK outfield: 0.45x
+ */
+export function calculatePlayerPositionalRating(player: Player): number {
+  const roleFit = getPlayerRoleFit(player);
+  const activeRole = roleFit.targetRole;
 
   let basePositionalScore = 0;
-  let placementMultiplier = 1.0;
+  const placementMultiplier = roleFit.placementMultiplier;
 
   if (isGoalkeeperPlayer(player)) {
     const { reflexes, handling, positioning, aerial } = player.attributes;
@@ -1607,10 +1826,15 @@ export function calculatePlayerPositionalRating(player: Player): number {
       // Goalkeeper played out on the court!
       basePositionalScore =
         positioning * 0.4 + aerial * 0.3 + reflexes * 0.2 + handling * 0.1;
-      placementMultiplier = 0.45;
     }
   } else {
-    const { pace, shooting, passing, defending, physical } = player.attributes;
+    const tilt = roleFit.statTilt;
+    const pace = player.attributes.pace * (tilt.pace ?? 1.0);
+    const shooting = player.attributes.shooting * (tilt.shooting ?? 1.0);
+    const passing = player.attributes.passing * (tilt.passing ?? 1.0);
+    const defending = player.attributes.defending * (tilt.defending ?? 1.0);
+    const physical = player.attributes.physical * (tilt.physical ?? 1.0);
+
     switch (activeRole) {
       case 'FWD':
         basePositionalScore =
@@ -1640,12 +1864,7 @@ export function calculatePlayerPositionalRating(player: Player): number {
         // Outfielder forced to play in goal! Severe penalty
         basePositionalScore =
           defending * 0.4 + physical * 0.35 + pace * 0.25;
-        placementMultiplier = 0.45;
         break;
-    }
-
-    if (activeRole !== 'GK' && activeRole !== naturalRole) {
-      placementMultiplier = 0.72;
     }
   }
 
@@ -2986,7 +3205,8 @@ function getEffectiveOutfieldAttr(
 ): number {
   const injuryMult = (player.injuryWeeksRemaining ?? 0) > 0 ? 0.62 : 1.0;
   if (!isGoalkeeperPlayer(player)) {
-    return player.attributes[attr] * injuryMult;
+    const tiltMult = getPlayerRoleFit(player).statTilt[attr] ?? 1.0;
+    return player.attributes[attr] * tiltMult * injuryMult;
   }
   // Goalkeepers have very low outfield technical ratings except basic distribution/aerials
   if (attr === 'passing') return player.attributes.positioning * 0.55 * injuryMult;
@@ -4544,22 +4764,31 @@ export function evaluateCampaignRun(input: {
   const championshipBonus =
     status === 'champion' ? 250 : status === 'runner_up' ? 110 : 0;
 
-  const legacyScore = Math.round(
-    leaguePoints * 14 +
-      wins * 25 +
-      Math.max(0, goalsFor - goalsAgainst) * 8 +
-      captainFinalOvr * 5 +
-      captainAuraSum * 1.5 +
-      unlockedCount * 30 +
-      championshipBonus
+  const legacyScore = Math.max(
+    0,
+    Math.round(
+      leaguePoints * 14 +
+        wins * 25 -
+        losses * 35 +
+        Math.max(0, goalsFor - goalsAgainst) * 8 +
+        captainFinalOvr * 5 +
+        captainAuraSum * 1.5 +
+        unlockedCount * 30 +
+        championshipBonus
+    )
   );
 
   let rank: LegacyRankGrade = 'C';
-  if (status === 'champion' && legacyScore >= 900) {
+  if (
+    status === 'champion' &&
+    losses <= 2 &&
+    wins >= 9 &&
+    legacyScore >= 1350
+  ) {
     rank = 'S';
-  } else if (status === 'champion' || legacyScore >= 720) {
+  } else if (status === 'champion' || legacyScore >= 950) {
     rank = 'A';
-  } else if (status === 'runner_up' || legacyScore >= 480) {
+  } else if (status === 'runner_up' || legacyScore >= 600) {
     rank = 'B';
   }
 

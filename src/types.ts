@@ -305,6 +305,7 @@ interface BasePlayer {
   shirtNumber?: number;
   age?: number;
   assignedPosition?: PlayerPosition;
+  secondaryPositions?: PlayerPosition[];
   status: PlayerStatus;
   form: number; // 0-100 Form / Condition rating
   fanbase: number;

@@ -44,6 +44,7 @@ import {
 import {
   applyCaptainEventChoice,
   applyTrainingFailurePenalty,
+  autoAssignPlayersToFormation,
   buildScheduleFromRegime,
   calculateCampFailureChance,
   calculateDiminishingStatGain,
@@ -254,6 +255,11 @@ export type GameAction =
       type: 'SET_PLAYER_POSITION';
       payload: { playerId: string; assignedPosition: PlayerPosition };
     }
+  | {
+      type: 'SWAP_PLAYER_POSITIONS';
+      payload: { playerAId: string; playerBId: string };
+    }
+  | { type: 'AUTO_FIT_FORMATION' }
   | {
       type: 'SET_CAPTAIN';
       payload: { playerId: string };
@@ -907,10 +913,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'SET_TACTICS': {
       const { formation, tacticalStyle } = action.payload;
+      const nextFormation = formation ?? state.team.formation;
+      const nextPlayers =
+        formation && formation !== state.team.formation
+          ? autoAssignPlayersToFormation(state.team.players, nextFormation)
+          : state.team.players;
       return syncTeamState(state, {
         ...state.team,
-        formation: formation ?? state.team.formation,
+        formation: nextFormation,
         tacticalStyle: tacticalStyle ?? state.team.tacticalStyle,
+        players: nextPlayers,
       });
     }
 
@@ -918,6 +930,30 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const { playerId, assignedPosition } = action.payload;
       const nextPlayers = state.team.players.map((p) =>
         p.id === playerId ? { ...p, assignedPosition } : p
+      );
+      return syncTeamState(state, { ...state.team, players: nextPlayers });
+    }
+
+    case 'SWAP_PLAYER_POSITIONS': {
+      const { playerAId, playerBId } = action.payload;
+      if (playerAId === playerBId) return state;
+      const playerA = state.team.players.find((p) => p.id === playerAId);
+      const playerB = state.team.players.find((p) => p.id === playerBId);
+      if (!playerA || !playerB) return state;
+      const roleA = playerA.assignedPosition ?? playerA.position;
+      const roleB = playerB.assignedPosition ?? playerB.position;
+      const nextPlayers = state.team.players.map((p) => {
+        if (p.id === playerAId) return { ...p, assignedPosition: roleB };
+        if (p.id === playerBId) return { ...p, assignedPosition: roleA };
+        return p;
+      });
+      return syncTeamState(state, { ...state.team, players: nextPlayers });
+    }
+
+    case 'AUTO_FIT_FORMATION': {
+      const nextPlayers = autoAssignPlayersToFormation(
+        state.team.players,
+        state.team.formation
       );
       return syncTeamState(state, { ...state.team, players: nextPlayers });
     }
@@ -1548,6 +1584,8 @@ export interface GameStateContextValue {
   addIdol: (idol: Player, signingCost?: number) => void;
   healPlayerRehab: (playerId: string) => void;
   dismissWeekSummary: () => void;
+  swapPlayerPositions: (playerAId: string, playerBId: string) => void;
+  autoFitFormation: () => void;
   resetGame: () => void;
 }
 
@@ -1670,6 +1708,12 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
     healPlayerRehab: (playerId) =>
       dispatch({ type: 'HEAL_PLAYER_REHAB', payload: { playerId } }),
     dismissWeekSummary: () => dispatch({ type: 'DISMISS_WEEK_SUMMARY' }),
+    swapPlayerPositions: (playerAId, playerBId) =>
+      dispatch({
+        type: 'SWAP_PLAYER_POSITIONS',
+        payload: { playerAId, playerBId },
+      }),
+    autoFitFormation: () => dispatch({ type: 'AUTO_FIT_FORMATION' }),
     resetGame: () => {
       try {
         window.localStorage.removeItem(SAVE_STORAGE_KEY);

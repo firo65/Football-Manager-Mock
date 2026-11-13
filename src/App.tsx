@@ -33,6 +33,7 @@ import {
   getFormationMatchupMultiplier,
   getFormationProfile,
   getPlayerConditionSummary,
+  getPlayerRoleFit,
   getPlayerTraitProgress,
   getSquadEnergySummary,
   normalizePosition,
@@ -172,8 +173,14 @@ export default function App() {
     unlockFacility,
     healPlayerRehab,
     dismissWeekSummary,
+    swapPlayerPositions,
+    autoFitFormation,
     resetGame,
   } = useGameState();
+
+  const [swapSourcePlayerId, setSwapSourcePlayerId] = useState<string | null>(
+    null
+  );
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [customOpponentRating, setCustomOpponentRating] = useState<number>(28);
@@ -519,7 +526,7 @@ export default function App() {
                   </span>
                   <span className="text-base font-extrabold font-mono text-sky-300">
                     {totalFans.toLocaleString()} Fans •{' '}
-                    {team.unlockedFacilities.length}/6 Built
+                    {team.unlockedFacilities.length}/{FACILITY_CATALOG.length} Built
                   </span>
                 </div>
               </div>
@@ -2236,6 +2243,109 @@ export default function App() {
                     <p className="text-[10px] font-mono text-slate-400">
                       Shape Counter RPS: 1-1-2-1 ▸ 1-2-2 • 1-2-1-1 ▸ 1-1-2-1 / 1-1-1-2 • 1-2-2 ▸ 1-2-1-1 • 1-1-1-2 ▸ 1-2-2
                     </p>
+
+                    {/* Formation Lineup & Adjacent Role Fit Board */}
+                    <div className="pt-2.5 border-t border-slate-800/80 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono uppercase font-bold text-cyan-300">
+                          🧩 {team.formation} Pitch Lineup (Click 2 Players to Swap Slots)
+                        </span>
+                        <button
+                          type="button"
+                          disabled={Boolean(halftimeState)}
+                          onClick={() => {
+                            setSwapSourcePlayerId(null);
+                            autoFitFormation();
+                          }}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-mono text-slate-300 disabled:opacity-50 cursor-pointer"
+                        >
+                          Auto-Fit Slots
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                        {[...team.players]
+                          .sort((a, b) => {
+                            const order: Partial<Record<PlayerPosition, number>> = {
+                              GK: 0,
+                              DEF: 1,
+                              MID: 2,
+                              FWD: 3,
+                            };
+                            const ra = normalizePosition(
+                              a.assignedPosition ?? a.position
+                            );
+                            const rb = normalizePosition(
+                              b.assignedPosition ?? b.position
+                            );
+                            return (order[ra] ?? 9) - (order[rb] ?? 9);
+                          })
+                          .map((p) => {
+                            const fit = getPlayerRoleFit(p);
+                            const isSelected = swapSourcePlayerId === p.id;
+                            const fitTone =
+                              fit.tier === 'natural'
+                                ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                                : fit.tier === 'secondary' ||
+                                    fit.tier === 'adjacent'
+                                  ? 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                                  : 'text-rose-300 bg-rose-500/10 border-rose-500/30';
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                disabled={Boolean(halftimeState)}
+                                onClick={() => {
+                                  if (!swapSourcePlayerId) {
+                                    setSwapSourcePlayerId(p.id);
+                                  } else if (swapSourcePlayerId === p.id) {
+                                    setSwapSourcePlayerId(null);
+                                  } else {
+                                    swapPlayerPositions(
+                                      swapSourcePlayerId,
+                                      p.id
+                                    );
+                                    setSwapSourcePlayerId(null);
+                                  }
+                                }}
+                                className={`text-left p-2 rounded-xl border transition disabled:opacity-50 cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-cyan-500/15 border-cyan-400 ring-1 ring-cyan-400/50'
+                                    : 'bg-slate-950/80 border-slate-800 hover:border-slate-600'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${getPositionBadgeClasses(
+                                      fit.targetRole
+                                    )}`}
+                                  >
+                                    {fit.targetRole}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${fitTone}`}
+                                  >
+                                    {fit.fitPct}%
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-xs font-semibold text-white truncate">
+                                  {p.name.split(' ')[0]}
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  Nat: {fit.naturalRole} • OVR{' '}
+                                  {Math.round(
+                                    calculatePlayerPositionalRating(p)
+                                  )}
+                                </div>
+                                {fit.tier !== 'natural' && (
+                                  <div className="mt-0.5 text-[9px] font-mono text-amber-300/90 leading-tight">
+                                    {fit.tiltSummary}
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
 
                     {/* Optional 1-Click Matchday Preparation (Cash Sinks) */}
                     <div className="pt-2.5 border-t border-slate-800/80 space-y-2">

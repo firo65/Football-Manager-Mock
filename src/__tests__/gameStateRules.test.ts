@@ -11,6 +11,7 @@ import {
   computeSquadZonePreview,
   getCampRolePreview,
   getFormationMatchupMultiplier,
+  getPlayerRoleFit,
   getRoleTrainingMultiplier,
   getSquadEnergySummary,
   resolvePenaltyShootout,
@@ -263,6 +264,56 @@ describe('State-Machine & Chronological Integrity Rules', () => {
       }
     );
     expect(vanguardAvoided.triggeredNote).toBeNull();
+  });
+
+  it('auto-fits formations, applies adjacent role stat tilts, supports secondaryPositions, and swaps slots cleanly', () => {
+    // Switching from 1-2-1-1 to 1-1-2-1 promotes one DEF to MID
+    const diamondState = gameReducer(INITIAL_GAME_STATE, {
+      type: 'SET_TACTICS',
+      payload: { formation: '1-1-2-1' },
+    });
+    const assignedRoles = diamondState.team.players.map(
+      (p) => p.assignedPosition ?? p.position
+    );
+    expect(assignedRoles.filter((r) => r === 'MID')).toHaveLength(2);
+    expect(assignedRoles.filter((r) => r === 'DEF')).toHaveLength(1);
+
+    const defs = diamondState.team.players.filter((p) => p.position === 'DEF');
+    const flexDef = defs.find((p) => p.assignedPosition === 'MID')!;
+    const anchorDef = defs.find((p) => p.assignedPosition === 'DEF')!;
+    expect(flexDef).toBeDefined();
+    expect(anchorDef).toBeDefined();
+
+    // Adjacent DEF->MID has 92% fit and +12% PAS / -15% DEF tilt
+    const adjacentFit = getPlayerRoleFit(flexDef, 'MID');
+    expect(adjacentFit.tier).toBe('adjacent');
+    expect(adjacentFit.fitPct).toBe(92);
+    expect(adjacentFit.statTilt.passing).toBe(1.12);
+    expect(adjacentFit.statTilt.defending).toBe(0.85);
+
+    // Distant DEF->FWD is 72% unless player has secondaryPositions: ['FWD']
+    const distantFit = getPlayerRoleFit(anchorDef, 'FWD');
+    expect(distantFit.tier).toBe('distant');
+    expect(distantFit.fitPct).toBe(72);
+
+    const hybridTomFit = getPlayerRoleFit(
+      { ...anchorDef, secondaryPositions: ['FWD'] },
+      'FWD'
+    );
+    expect(hybridTomFit.tier).toBe('secondary');
+    expect(hybridTomFit.fitPct).toBe(97);
+
+    // Swapping the two defenders switches which one plays MID
+    const swapped = gameReducer(diamondState, {
+      type: 'SWAP_PLAYER_POSITIONS',
+      payload: { playerAId: flexDef.id, playerBId: anchorDef.id },
+    });
+    expect(
+      swapped.team.players.find((p) => p.id === anchorDef.id)?.assignedPosition
+    ).toBe('MID');
+    expect(
+      swapped.team.players.find((p) => p.id === flexDef.id)?.assignedPosition
+    ).toBe('DEF');
   });
 });
 

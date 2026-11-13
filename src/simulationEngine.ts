@@ -1711,7 +1711,7 @@ export function calculateEffectiveFailureChance(
   captainCharisma: number
 ): number {
   const fatigueSlope =
-    currentStamina >= 75 ? 0 : (75 - currentStamina) * 0.011;
+    currentStamina >= 75 ? 0 : (75 - currentStamina) * 0.0135;
   const effectiveFailureChance =
     baseFailureRate + fatigueSlope - captainCharisma / 450;
   return Math.max(0, Math.min(0.9, effectiveFailureChance));
@@ -1743,33 +1743,33 @@ export function getSquadEnergySummary(players: Player[]): {
     players.reduce((s, p) => s + p.status.stress, 0) / players.length
   );
 
-  if (minStamina < 25 || avgStamina < 30) {
+  if (minStamina < 30 || avgStamina < 36) {
     return {
       avgStamina,
       minStamina,
       avgStress,
-      matchConditionLabel: 'Exhausted (-28% Match OVR)',
-      matchModifierPct: -28,
+      matchConditionLabel: 'Exhausted (-32% Match OVR)',
+      matchModifierPct: -32,
       tone: 'rose',
     };
   }
-  if (avgStamina < 48 || minStamina < 40) {
+  if (avgStamina < 52 || minStamina < 44) {
     return {
       avgStamina,
       minStamina,
       avgStress,
-      matchConditionLabel: 'Fatigued (-15% Match OVR)',
-      matchModifierPct: -15,
+      matchConditionLabel: 'Fatigued (-18% Match OVR)',
+      matchModifierPct: -18,
       tone: 'amber',
     };
   }
-  if (avgStamina < 58 || minStamina < 48 || avgStress > 60) {
+  if (avgStamina < 64 || minStamina < 54 || avgStress > 56) {
     return {
       avgStamina,
       minStamina,
       avgStress,
-      matchConditionLabel: 'Tired (-7% Match OVR)',
-      matchModifierPct: -7,
+      matchConditionLabel: 'Tired (-9% Match OVR)',
+      matchModifierPct: -9,
       tone: 'amber',
     };
   }
@@ -2010,9 +2010,9 @@ export function processSquadCampWeek(
     };
   }
 
-  // 3. SUCCESS OR BREAKTHROUGH (15% chance for 1.45x gains)
+  // 3. SUCCESS OR BREAKTHROUGH (15% chance for 1.35x gains)
   const isBreakthrough = rng() < 0.15;
-  const breakthroughMult = isBreakthrough ? 1.45 : 1.0;
+  const breakthroughMult = isBreakthrough ? 1.35 : 1.0;
 
   const updatedPlayers = players.map((p) => {
     const beforeEnergy = getPlayerEnergy(p);
@@ -2041,7 +2041,7 @@ export function processSquadCampWeek(
     const hitBurnout = nextStress >= 100;
 
     const variance = 0.88 + rng() * 0.24;
-    const baseGain = 4.6 * breakthroughMult * variance;
+    const baseGain = 3.0 * breakthroughMult * variance;
 
     const rolePreview = getCampRolePreview(camp.id, p.position);
     let facMult = 1.0 + (hasSportsScienceLab ? 0.1 : 0);

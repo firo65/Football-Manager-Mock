@@ -77,15 +77,15 @@ export const SQUAD_CAMP_OPTIONS: SquadCampDefinition[] = [
   {
     id: 'camp_recovery',
     title: 'Full Squad Recovery Week',
-    subtitle: '+50 Energy • Fresh Bounce • 0% Fail Risk',
+    subtitle: '+42 Energy • Fresh Bounce • 0% Fail Risk',
     emoji: '🛌',
     description:
       'Cryotherapy, massage, and light film study. Restores fresh legs, grants a Sunday Fresh Bounce (+4% Pace, +2% Attack/Defense), heals 1 wk injury, and clears burnout.',
-    energyCost: -50,
-    stressDelta: -35,
+    energyCost: -42,
+    stressDelta: -30,
     monetaryCost: 500,
     baseFailureRate: 0.0,
-    targetSummary: '+50 Stamina, -35 Stress, +8 Form & Fresh Bounce',
+    targetSummary: '+42 Stamina, -30 Stress, +8 Form & Fresh Bounce',
     accentClass:
       'bg-emerald-500/15 border-emerald-500/60 text-emerald-200 shadow-emerald-500/15',
   },

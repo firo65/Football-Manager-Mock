@@ -146,7 +146,7 @@ describe('State-Machine & Chronological Integrity Rules', () => {
     }
   });
 
-  it('penalizes 48-57% stamina as Tired (-7%) and grants Fresh Bounce after Recovery Camp', () => {
+  it('penalizes 52-63% stamina as Tired (-9%) and grants Fresh Bounce after Recovery Camp', () => {
     const tiredPlayers = INITIAL_GAME_STATE.team.players.map((p) => ({
       ...p,
       status: { ...p.status, stamina: 54, stress: 25 },
@@ -157,7 +157,7 @@ describe('State-Machine & Chronological Integrity Rules', () => {
     }));
 
     const tiredSummary = getSquadEnergySummary(tiredPlayers);
-    expect(tiredSummary.matchModifierPct).toBe(-7);
+    expect(tiredSummary.matchModifierPct).toBe(-9);
     expect(tiredSummary.matchConditionLabel).toContain('Tired');
     expect(calculatePlayerPositionalRating(tiredPlayers[1]!)).toBeLessThan(
       calculatePlayerPositionalRating(freshPlayers[1]!)

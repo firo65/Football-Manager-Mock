@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { CoachTipsProvider } from './CoachTipsContext';
 import { FieldManualModal } from './components/CoachTutorial';
 import { useGameState } from './GameStateContext';
@@ -6,26 +7,25 @@ import {
   evaluateCampaignRun,
   getCaptainBuffMultipliers,
   getSquadEnergySummary,
+  normalizePosition,
 } from './simulationEngine';
 import {
+  FACILITY_CATALOG,
   getScheduledFixtureForWeek,
   SQUAD_CAMP_OPTIONS,
 } from './mockData';
 import type { FormationType, TacticalStyle } from './types';
-import type { ActiveTab } from './components/uiPrimitives';
 import { TopHeader } from './components/TopHeader';
-import { SidebarNav } from './components/SidebarNav';
 import {
   CampaignFinaleBanner,
   CaptainEventBanner,
-  HalftimeLockBanner,
   WeeklySummaryBanner,
 } from './components/CampaignBanners';
-import { ManagerDeskView } from './components/ManagerDeskView';
+import { UmaCommandStage } from './components/UmaCommandStage';
 import { RosterView } from './components/RosterView';
-import { TrainingPlannerView } from './components/TrainingPlannerView';
-import { MatchEngineView } from './components/MatchEngineView';
 import { ClubFacilitiesView } from './components/ClubFacilitiesView';
+
+type ActiveDrawer = 'none' | 'roster' | 'club';
 
 export default function App() {
   const {
@@ -36,22 +36,18 @@ export default function App() {
     resolveCaptainEvent,
     selectSquadCamp,
     runWeeklyCamp,
-    scoutWeekOpponent,
     activateMatchPrep,
     startHalftimeMatch,
     finishHalftimeMatch,
     completeWeekTurn,
-    runMatch,
     unlockFacility,
     healPlayerRehab,
     dismissWeekSummary,
     setFeaturedPlayer,
-    swapPlayerPositions,
-    autoFitFormation,
     resetGame,
   } = useGameState();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>('none');
   const [selectedLineupIds, setSelectedLineupIds] = useState<string[]>(
     state.team.players.map((p) => p.id)
   );
@@ -61,6 +57,17 @@ export default function App() {
     useState<FormationType>('1-2-2');
   const [halftimeRally, setHalftimeRally] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (activeDrawer === 'none') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveDrawer('none');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeDrawer]);
+
   const {
     week,
     seasonLength,
@@ -68,7 +75,6 @@ export default function App() {
     campaignOutcomeReason,
     selectedCampId,
     lastCampOutcome,
-    scoutedWeeks,
     halftimeState,
     activeMatchPrep,
     freshBounceActive,
@@ -77,7 +83,6 @@ export default function App() {
     featuredPlayerId,
     team,
     matchHistory,
-    weeklySummaryLogs,
     leaguePoints,
     activeCaptainEvent,
     milestones,
@@ -88,12 +93,7 @@ export default function App() {
 
   const displayWeek = Math.min(week, seasonLength);
   const currentScheduledFixture = getScheduledFixtureForWeek(displayWeek);
-  const nextScheduledFixture =
-    displayWeek < seasonLength
-      ? getScheduledFixtureForWeek(displayWeek + 1)
-      : null;
   const isCampaignOver = campaignStatus !== 'in_progress';
-  const isWeekScouted = scoutedWeeks.includes(displayWeek);
   const squadEnergy = getSquadEnergySummary(team.players);
   const activeCamp =
     SQUAD_CAMP_OPTIONS.find((c) => c.id === selectedCampId) ??
@@ -111,11 +111,19 @@ export default function App() {
   const captainBuffs = getCaptainBuffMultipliers(team.players);
   const activeCaptain = captainBuffs.captain;
 
-  const weeklyStage: 'prep' | 'matchday' | 'debrief' = hasPlayedMatchThisWeek
-    ? 'debrief'
-    : hasRunCampThisWeek || Boolean(halftimeState)
-    ? 'matchday'
-    : 'prep';
+  const hasSquadAlert = team.players.some(
+    (p) =>
+      (p.injuryWeeksRemaining ?? 0) > 0 ||
+      p.isBurnedOut ||
+      p.status.stamina < 40 ||
+      p.status.stress >= 70 ||
+      (p.assignedPosition &&
+        normalizePosition(p.assignedPosition) !== normalizePosition(p.position))
+  );
+
+  const hasAffordableFacility = FACILITY_CATALOG.some(
+    (f) => !team.unlockedFacilities.includes(f.id) && team.funds >= f.cost
+  );
 
   const handleRestartGame = () => {
     resetGame();
@@ -123,74 +131,31 @@ export default function App() {
     setHalftimeFormation('1-2-2');
     setHalftimeRally(false);
     setSelectedLineupIds(team.players.map((p) => p.id));
-    setActiveTab('dashboard');
-  };
-
-  const toggleLineupMember = (playerId: string) => {
-    setSelectedLineupIds((prev) =>
-      prev.includes(playerId)
-        ? prev.length > 1
-          ? prev.filter((id) => id !== playerId)
-          : prev
-        : [...prev, playerId]
-    );
-  };
-
-  const handleRunCampAndGoToMatchday = () => {
-    if (
-      !isCampaignOver &&
-      !hasRunCampThisWeek &&
-      !hasPlayedMatchThisWeek &&
-      !halftimeState
-    ) {
-      runWeeklyCamp();
-    }
-    setActiveTab('matches');
-  };
-
-  const handleAdvanceWeekAndReturn = () => {
-    completeWeekTurn(selectedLineupIds);
-    if (activeTab === 'matches') {
-      setActiveTab('dashboard');
-    }
+    setActiveDrawer('none');
   };
 
   return (
     <CoachTipsProvider>
       <div className="min-h-screen md:h-screen md:overflow-hidden flex flex-col bg-slate-950 text-slate-100">
         <TopHeader
-          stageLabel={currentScheduledFixture.stage}
-          formation={team.formation}
-          tacticalStyle={team.tacticalStyle}
-          teamName={team.name}
           displayWeek={displayWeek}
           seasonLength={seasonLength}
           funds={team.funds}
-          totalFans={totalFans}
           leaguePoints={leaguePoints}
-          reputation={team.reputation}
+          avgStamina={squadEnergy.avgStamina}
+          avgStress={squadEnergy.avgStress}
+          hasSquadAlert={hasSquadAlert}
+          hasAffordableFacility={hasAffordableFacility}
+          activeDrawer={activeDrawer}
           isCampaignOver={isCampaignOver}
+          onToggleDrawer={(drawer) =>
+            setActiveDrawer((prev) => (prev === drawer ? 'none' : drawer))
+          }
           onRestart={handleRestartGame}
         />
 
-        <div className="flex-1 min-h-0 md:overflow-y-auto">
-          <div className="max-w-7xl w-full mx-auto flex flex-col md:flex-row items-start gap-5 p-5">
-            <SidebarNav
-              activeTab={activeTab}
-              onSelectTab={setActiveTab}
-              displayWeek={displayWeek}
-              seasonLength={seasonLength}
-              leaguePoints={leaguePoints}
-              weeklyStage={weeklyStage}
-              hasRunCampThisWeek={hasRunCampThisWeek}
-              hasPlayedMatchThisWeek={hasPlayedMatchThisWeek}
-              hasHalftimeState={Boolean(halftimeState)}
-              isCampaignOver={isCampaignOver}
-              opponentName={currentScheduledFixture.opponentName}
-              onAdvanceWeek={handleAdvanceWeekAndReturn}
-            />
-
-            <main className="flex-1 min-w-0 w-full space-y-5">
+        <main className="flex-1 min-h-0 md:overflow-y-auto">
+          <div className="max-w-7xl w-full mx-auto px-4 sm:px-5 py-4 space-y-4">
             <CampaignFinaleBanner
               campaignStatus={campaignStatus}
               campaignOutcomeReason={campaignOutcomeReason}
@@ -213,133 +178,113 @@ export default function App() {
               onDismiss={dismissWeekSummary}
             />
 
-            <HalftimeLockBanner
+            <UmaCommandStage
+              team={team}
+              featuredPlayerId={featuredPlayerId}
+              displayWeek={displayWeek}
+              seasonLength={seasonLength}
+              leaguePoints={leaguePoints}
+              matchHistoryCount={matchHistory.length}
+              selectedCampId={selectedCampId}
+              activeCamp={activeCamp}
+              lastCampOutcome={lastCampOutcome}
+              weeklySpotlights={weeklySpotlights}
+              squadEnergy={squadEnergy}
+              currentScheduledFixture={currentScheduledFixture}
+              activeMatchPrep={activeMatchPrep}
+              freshBounceActive={freshBounceActive}
+              activeEventMatchBonus={activeEventMatchBonus}
               halftimeState={halftimeState}
-              activeTab={activeTab}
-              onReturnToMatch={() => setActiveTab('matches')}
+              halftimeTactic={halftimeTactic}
+              halftimeFormation={halftimeFormation}
+              halftimeRally={halftimeRally}
+              selectedLineupIds={selectedLineupIds}
+              latestMatch={latestMatch}
+              isCampaignOver={isCampaignOver}
+              hasRunCampThisWeek={hasRunCampThisWeek}
+              hasPlayedMatchThisWeek={hasPlayedMatchThisWeek}
+              onSelectFeaturedPlayer={setFeaturedPlayer}
+              onSelectCamp={selectSquadCamp}
+              onRunWeeklyCamp={runWeeklyCamp}
+              onSetTactics={setTactics}
+              onActivateMatchPrep={(prepId) => {
+                if (prepId !== 'none') {
+                  activateMatchPrep(prepId);
+                }
+              }}
+              onStartHalftimeMatch={(opts) => {
+                setHalftimeTactic(team.tacticalStyle);
+                setHalftimeFormation(team.formation);
+                setHalftimeRally(false);
+                startHalftimeMatch(opts);
+              }}
+              onFinishHalftimeMatch={finishHalftimeMatch}
+              onSetHalftimeTactic={setHalftimeTactic}
+              onSetHalftimeFormation={setHalftimeFormation}
+              onToggleHalftimeRally={() => setHalftimeRally((prev) => !prev)}
+              onAdvanceWeek={() => completeWeekTurn(selectedLineupIds)}
             />
-
-            {activeTab === 'dashboard' && (
-              <ManagerDeskView
-                team={team}
-                featuredPlayerId={featuredPlayerId}
-                displayWeek={displayWeek}
-                seasonLength={seasonLength}
-                leaguePoints={leaguePoints}
-                matchHistoryCount={matchHistory.length}
-                currentScheduledFixture={currentScheduledFixture}
-                nextScheduledFixture={nextScheduledFixture}
-                isCampaignOver={isCampaignOver}
-                hasRunCampThisWeek={hasRunCampThisWeek}
-                hasPlayedMatchThisWeek={hasPlayedMatchThisWeek}
-                halftimeState={halftimeState}
-                selectedCampId={selectedCampId}
-                lastCampOutcome={lastCampOutcome}
-                weeklySpotlights={weeklySpotlights}
-                latestMatch={latestMatch}
-                squadEnergy={squadEnergy}
-                weeklySummaryLogs={weeklySummaryLogs}
-                onSelectFeaturedPlayer={setFeaturedPlayer}
-                onSelectCamp={selectSquadCamp}
-                onNavigate={setActiveTab}
-                onAdvanceWeek={handleAdvanceWeekAndReturn}
-              />
-            )}
-
-            {activeTab === 'roster' && (
-              <RosterView
-                team={team}
-                halftimeState={halftimeState}
-                isCampaignOver={isCampaignOver}
-                onSetPlayerPosition={setPlayerPosition}
-                onSetCaptain={setCaptain}
-                onHealPlayerRehab={healPlayerRehab}
-                onNavigate={setActiveTab}
-              />
-            )}
-
-            {activeTab === 'schedule' && (
-              <TrainingPlannerView
-                team={team}
-                displayWeek={displayWeek}
-                selectedCampId={selectedCampId}
-                activeCamp={activeCamp}
-                weeklySpotlights={weeklySpotlights}
-                squadEnergy={squadEnergy}
-                currentScheduledFixture={currentScheduledFixture}
-                nextScheduledFixture={nextScheduledFixture}
-                scoutedWeeks={scoutedWeeks}
-                freshBounceActive={freshBounceActive}
-                isCampaignOver={isCampaignOver}
-                hasRunCampThisWeek={hasRunCampThisWeek}
-                hasPlayedMatchThisWeek={hasPlayedMatchThisWeek}
-                halftimeState={halftimeState}
-                onSelectCamp={selectSquadCamp}
-                onRunCampAndGoToMatchday={handleRunCampAndGoToMatchday}
-                onAdvanceWeek={handleAdvanceWeekAndReturn}
-                onNavigate={setActiveTab}
-              />
-            )}
-
-            {activeTab === 'matches' && (
-              <MatchEngineView
-                team={team}
-                displayWeek={displayWeek}
-                seasonLength={seasonLength}
-                selectedCampId={selectedCampId}
-                activeCamp={activeCamp}
-                weeklySpotlights={weeklySpotlights}
-                squadEnergy={squadEnergy}
-                currentScheduledFixture={currentScheduledFixture}
-                scoutedWeeks={scoutedWeeks}
-                isWeekScouted={isWeekScouted}
-                activeMatchPrep={activeMatchPrep}
-                freshBounceActive={freshBounceActive}
-                activeEventMatchBonus={activeEventMatchBonus}
-                halftimeState={halftimeState}
-                halftimeTactic={halftimeTactic}
-                halftimeFormation={halftimeFormation}
-                halftimeRally={halftimeRally}
-                selectedLineupIds={selectedLineupIds}
-                latestMatch={latestMatch}
-                isCampaignOver={isCampaignOver}
-                hasRunCampThisWeek={hasRunCampThisWeek}
-                hasPlayedMatchThisWeek={hasPlayedMatchThisWeek}
-                onSelectCamp={selectSquadCamp}
-                onRunWeeklyCamp={runWeeklyCamp}
-                onSetTactics={setTactics}
-                onSwapPlayerPositions={swapPlayerPositions}
-                onAutoFitFormation={autoFitFormation}
-                onActivateMatchPrep={activateMatchPrep}
-                onScoutWeekOpponent={scoutWeekOpponent}
-                onStartHalftimeMatch={(opts) => {
-                  setHalftimeTactic(team.tacticalStyle);
-                  setHalftimeFormation(team.formation);
-                  setHalftimeRally(false);
-                  startHalftimeMatch(opts);
-                }}
-                onFinishHalftimeMatch={finishHalftimeMatch}
-                onSetHalftimeTactic={setHalftimeTactic}
-                onSetHalftimeFormation={setHalftimeFormation}
-                onToggleHalftimeRally={() => setHalftimeRally((prev) => !prev)}
-                onToggleLineupMember={toggleLineupMember}
-                onRunExhibitionMatch={runMatch}
-                onAdvanceWeek={handleAdvanceWeekAndReturn}
-              />
-            )}
-
-            {activeTab === 'club' && (
-              <ClubFacilitiesView
-                team={team}
-                milestones={milestones}
-                halftimeState={halftimeState}
-                isCampaignOver={isCampaignOver}
-                onUnlockFacility={unlockFacility}
-              />
-            )}
-            </main>
           </div>
-        </div>
+        </main>
+
+        {activeDrawer !== 'none' && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              activeDrawer === 'roster' ? 'Squad Roster' : 'Club Facilities'
+            }
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm"
+            onClick={() => setActiveDrawer('none')}
+          >
+            <div
+              className="relative w-full max-w-5xl max-h-[88vh] flex flex-col bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-900/95">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white">
+                    {activeDrawer === 'roster'
+                      ? '👥 Squad & Captain'
+                      : '🏛️ Club Facilities'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer('none')}
+                  aria-label="Close popup"
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5">
+                {activeDrawer === 'roster' && (
+                  <RosterView
+                    team={team}
+                    halftimeState={halftimeState}
+                    isCampaignOver={isCampaignOver}
+                    onSetPlayerPosition={setPlayerPosition}
+                    onSetCaptain={setCaptain}
+                    onHealPlayerRehab={healPlayerRehab}
+                    onNavigate={() => setActiveDrawer('none')}
+                  />
+                )}
+
+                {activeDrawer === 'club' && (
+                  <ClubFacilitiesView
+                    team={team}
+                    milestones={milestones}
+                    halftimeState={halftimeState}
+                    isCampaignOver={isCampaignOver}
+                    onUnlockFacility={unlockFacility}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <FieldManualModal />
     </CoachTipsProvider>

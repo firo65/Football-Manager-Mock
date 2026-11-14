@@ -227,8 +227,8 @@ export function MatchEngineView({
       {!isCampaignOver && !halftimeState && !hasPlayedMatchThisWeek && (
         <CoachTipBanner
           hintId="hint_match_counter"
-          title="Scout first, then counter their tactic"
-          body="Pay ¥400 to Scout the opponent's tactic & formation, then pick the counter style: Attacking beats Balanced, Counter beats Attacking, Balanced beats Counter. You can adjust again at Halftime."
+          title="Scout & Counter"
+          body="Scout (¥400) to reveal tactic & shape, then counter: Attacking > Balanced > Counter > Attacking."
           guideSection="tactics"
         />
       )}
@@ -306,8 +306,8 @@ export function MatchEngineView({
 
           <CoachTipBanner
             hintId="hint_halftime_adjust"
-            title="45' Halftime Adjustments"
-            body="Check the opponent's adapted tactic & shape above and swap yours to counter them for the second half. If you're trailing or chasing a win, toggle Captain Rally (-8 Squad Energy) for an all-zone surge."
+            title="Halftime Adjustments"
+            body="Counter the opponent's adapted tactic/shape above, or toggle Captain Rally (-8 NRG)."
             tone="amber"
             guideSection="tactics"
           />
@@ -751,6 +751,7 @@ export function MatchEngineView({
                             setHoverSwapPlayerId(null);
                           }
                         }}
+                        title={fit.tier !== 'natural' ? fit.tiltSummary : undefined}
                         className={`text-left p-2.5 rounded-xl border transition cursor-pointer ${
                           isSelected
                             ? 'bg-cyan-500/15 border-cyan-400 ring-1 ring-cyan-400/50'
@@ -780,11 +781,6 @@ export function MatchEngineView({
                           Nat {fit.naturalRole} • OVR{' '}
                           {Math.round(calculatePlayerPositionalRating(p))}
                         </div>
-                        {fit.tier !== 'natural' && (
-                          <div className="mt-1 text-[11px] text-amber-300/90 leading-tight">
-                            {fit.tiltSummary}
-                          </div>
-                        )}
                       </button>
                     );
                   })}
@@ -902,16 +898,18 @@ export function MatchEngineView({
               </div>
 
               <div className="space-y-1">
-                <h3 className="text-lg font-bold text-white">
+                <h3
+                  title={
+                    currentScheduledFixture.scoutingClue ??
+                    currentScheduledFixture.description
+                  }
+                  className="text-lg font-bold text-white"
+                >
                   vs {currentScheduledFixture.name}{' '}
                   <span className="text-sm tabular-nums text-indigo-300 font-semibold">
                     (~{estScaledRating} OVR)
                   </span>
                 </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {currentScheduledFixture.scoutingClue ??
-                    currentScheduledFixture.description}
-                </p>
               </div>
 
               <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -923,7 +921,7 @@ export function MatchEngineView({
                 </span>
                 {freshBounceActive && (
                   <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-200 font-medium">
-                    Fresh Bounce Active
+                    Fresh Bounce
                   </span>
                 )}
                 {activeEventMatchBonus && (
@@ -941,10 +939,17 @@ export function MatchEngineView({
                 )}
               </div>
 
-              <p className="text-xs text-slate-400 tabular-nums">
-                Our Squad: <strong className="text-slate-200">{prediction.teamEffectiveRating} OVR</strong> •{' '}
-                {squadEnergy.matchConditionLabel} • {synergyInfo.synergyNote}
-              </p>
+              <div className="flex flex-wrap gap-1.5 text-[11px] tabular-nums">
+                <span className="px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-200 font-semibold">
+                  Squad {prediction.teamEffectiveRating} OVR
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
+                  {squadEnergy.matchConditionLabel}
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-indigo-300">
+                  {synergyInfo.synergyNote}
+                </span>
+              </div>
 
               {/* 4-Zone Matchup Comparison */}
               <div className="grid grid-cols-2 gap-2">

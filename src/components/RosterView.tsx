@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AlertTriangle, Calendar, Crown } from 'lucide-react';
 import {
   calculatePlayerPositionalRating,
@@ -15,8 +16,9 @@ import {
 import { CoachTipBanner, ManualLinkButton } from './CoachTutorial';
 import {
   type ActiveTab,
-  getConditionToneClasses,
   getPositionBadgeClasses,
+  getStatLetterGrade,
+  getUnifiedMoodPill,
   PlayerAvatar,
   StatProgressBar,
 } from './uiPrimitives';
@@ -38,6 +40,8 @@ export function RosterView({
   onHealPlayerRehab: (playerId: string) => void;
   onNavigate: (tab: ActiveTab) => void;
 }) {
+  const [expandedTraits, setExpandedTraits] = useState<Record<string, boolean>>({});
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -65,8 +69,8 @@ export function RosterView({
       {!isCampaignOver && (
         <CoachTipBanner
           hintId="hint_roster_captain"
-          title="Roles, Captain Aura & Traits"
-          body="Keep starters in their natural green roles for full ratings (switch Formations in Match Engine to use a MID). Your Captain's Confidence boosts camp gains, Passion saves stamina, and Charisma lowers slump risk."
+          title="Roles & Captaincy"
+          body="Keep natural roles (1 GK, 2 DEF, 2 FWD) and pick a Captain to buff squad gains & stamina."
           guideSection="energy"
         />
       )}
@@ -81,7 +85,15 @@ export function RosterView({
           const isOutOfPosition = activePos !== naturalPos;
           const isOverworked = player.status.stress > 80;
           const cond = getPlayerConditionSummary(player);
-          const tone = getConditionToneClasses(cond.tone);
+          const mood = getUnifiedMoodPill(
+            player.status.stamina,
+            player.status.stress
+          );
+          const gradeInfo = getStatLetterGrade(posRating);
+          const traitProgress = getPlayerTraitProgress(player);
+          const unlockedTraits = traitProgress.filter((t) => t.unlocked);
+          const lockedTraits = traitProgress.filter((t) => !t.unlocked);
+          const showLockedTraits = Boolean(expandedTraits[player.id]);
 
           return (
             <div
@@ -114,18 +126,23 @@ export function RosterView({
                       {player.name}
                     </h3>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs tabular-nums font-bold px-2.5 py-0.5 rounded-lg bg-emerald-500/12 text-emerald-300 border border-emerald-500/30">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-lg border ${gradeInfo.badgeClass}`}
+                      >
+                        {gradeInfo.grade}
+                      </span>
+                      <span className="text-xs tabular-nums font-bold px-2 py-0.5 rounded-lg bg-slate-950/70 text-slate-200 border border-slate-800">
                         OVR {Math.round(posRating)}
                       </span>
                       <span
-                        className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${tone.pill}`}
+                        className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${mood.pillClass}`}
                       >
-                        {cond.label} {cond.arrow}
+                        {mood.icon} {mood.label}
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 pt-0.5">
-                      {getPlayerTraitProgress(player).map((item) =>
-                        item.unlocked ? (
+                    {(unlockedTraits.length > 0 || lockedTraits.length > 0) && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        {unlockedTraits.map((item) => (
                           <span
                             key={item.trait.id}
                             title={item.trait.summary}
@@ -133,20 +150,38 @@ export function RosterView({
                           >
                             {item.trait.icon} {item.trait.name}
                           </span>
-                        ) : (
-                          <span
-                            key={item.trait.id}
-                            title={`Locked Trait — ${item.trait.summary}`}
-                            className="text-[11px] px-2 py-0.5 rounded-full bg-slate-950/60 text-slate-400 border border-slate-800/70"
+                        ))}
+                        {lockedTraits.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedTraits((prev) => ({
+                                ...prev,
+                                [player.id]: !prev[player.id],
+                              }))
+                            }
+                            className="text-[11px] px-2 py-0.5 rounded-full bg-slate-950/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800/70 transition cursor-pointer"
                           >
-                            {item.trait.name}:{' '}
-                            <strong className="text-slate-200 tabular-nums">
-                              {item.progressText}
-                            </strong>
-                          </span>
-                        )
-                      )}
-                    </div>
+                            {showLockedTraits
+                              ? 'Hide locked ▲'
+                              : `+${lockedTraits.length} locked ▾`}
+                          </button>
+                        )}
+                        {showLockedTraits &&
+                          lockedTraits.map((item) => (
+                            <span
+                              key={item.trait.id}
+                              title={`Locked Trait — ${item.trait.summary}`}
+                              className="text-[11px] px-2 py-0.5 rounded-full bg-slate-950/60 text-slate-400 border border-slate-800/70"
+                            >
+                              {item.trait.name}:{' '}
+                              <strong className="text-slate-200 tabular-nums">
+                                {item.progressText}
+                              </strong>
+                            </span>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -195,23 +230,23 @@ export function RosterView({
               {/* Unified Energy Gauge */}
               <div className="p-3 rounded-xl bg-slate-950/55 border border-slate-800/60 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-slate-300">
-                    Condition ({cond.hint})
+                  <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                    <span>⚡ Energy</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${mood.pillClass}`}
+                    >
+                      {mood.icon} {mood.label}
+                    </span>
                   </span>
-                  <span className="tabular-nums font-bold text-emerald-300">
-                    {cond.energyScore}%
+                  <span className="tabular-nums font-bold text-white">
+                    {player.status.stamina}%
                   </span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden">
+                <div className="h-2.5 w-full rounded-full bg-slate-800/80 overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-300 ${tone.bar}`}
-                    style={{ width: `${cond.energyScore}%` }}
+                    className={`h-full rounded-full transition-all duration-300 ${mood.barClass}`}
+                    style={{ width: `${player.status.stamina}%` }}
                   />
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs tabular-nums text-slate-400">
-                  <span>Stamina {player.status.stamina}%</span>
-                  <span>Stress {player.status.stress}%</span>
-                  <span>Morale {player.status.morale}%</span>
                 </div>
               </div>
 
@@ -266,7 +301,7 @@ export function RosterView({
                 cond.energyScore < 65) && (
                 <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/55 border border-slate-800/60 text-xs">
                   <span className="text-slate-300">
-                    Physio Rehab: clears injury/burnout (+22 Stamina, -18 Stress)
+                    Physio Rehab (+22 Stamina • -18 Stress)
                   </span>
                   <button
                     type="button"
@@ -288,27 +323,35 @@ export function RosterView({
               )}
 
               {player.isCaptain && player.captainStats && (
-                <div className="p-3.5 rounded-xl border bg-amber-950/20 border-amber-500/30 space-y-2">
+                <div className="p-3 rounded-xl border bg-amber-950/20 border-amber-500/30 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
                     <Crown className="w-3.5 h-3.5" />
-                    Captaincy Aura Buffs
+                    Captain Aura
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <StatProgressBar
-                      label="Confidence (Gain)"
-                      value={player.captainStats.confidence}
-                      colorClass="bg-emerald-400"
-                    />
-                    <StatProgressBar
-                      label="Passion (-Stam)"
-                      value={player.captainStats.passion}
-                      colorClass="bg-sky-400"
-                    />
-                    <StatProgressBar
-                      label="Charisma (-Stress)"
-                      value={player.captainStats.charisma}
-                      colorClass="bg-purple-400"
-                    />
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {(
+                      [
+                        ['Confidence', player.captainStats.confidence],
+                        ['Passion', player.captainStats.passion],
+                        ['Charisma', player.captainStats.charisma],
+                      ] as const
+                    ).map(([label, val]) => {
+                      const g = getStatLetterGrade(val);
+                      return (
+                        <span
+                          key={label}
+                          title={`${label}: ${Math.round(val)}/100`}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/75 border border-slate-800 text-slate-200 font-semibold"
+                        >
+                          <span>{label}</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[11px] border ${g.badgeClass}`}
+                          >
+                            {g.grade}
+                          </span>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}

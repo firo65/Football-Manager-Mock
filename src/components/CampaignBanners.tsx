@@ -283,161 +283,155 @@ export function WeeklySummaryBanner({
 }) {
   if (!summary) return null;
 
+  const avgEnergyDelta =
+    summary.playerReports.length > 0
+      ? Math.round(
+          summary.playerReports.reduce((acc, rep) => acc + rep.energyDelta, 0) /
+            summary.playerReports.length
+        )
+      : 0;
+
+  const aggregatedStats = new Map<string, number>();
+  const rawGains: string[] = [];
+  for (const rep of summary.playerReports) {
+    for (const gain of rep.statGains) {
+      const match = gain.trim().match(/^([+-]?\d+)\s+(.+)$/);
+      if (match && match[1] && match[2]) {
+        const delta = Number(match[1]);
+        const label = match[2];
+        aggregatedStats.set(label, (aggregatedStats.get(label) ?? 0) + delta);
+      } else if (!rawGains.includes(gain)) {
+        rawGains.push(gain);
+      }
+    }
+  }
+
+  const statChips = Array.from(aggregatedStats.entries())
+    .filter(([, total]) => total !== 0)
+    .slice(0, 4)
+    .map(([label, total]) => ({
+      text: `${total > 0 ? `+${total}` : total} ${label}`,
+      positive: total >= 0,
+    }));
+
+  const unlockedTraits = summary.playerReports.flatMap((rep) =>
+    rep.newTraits.map((tr) => `${tr.icon} ${tr.name} (${rep.playerName.split(' ')[0]})`)
+  );
+  const injuredPlayers = summary.playerReports
+    .filter((rep) => rep.injuredReason)
+    .map((rep) => rep.playerName.split(' ')[0]);
+
   return (
-    <div className="bg-slate-900/85 border border-emerald-500/35 rounded-2xl p-4 space-y-3 shadow-lg">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/70 pb-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-200">
-            Week {summary.week} Report
-          </span>
+    <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 bg-slate-900/90 border border-emerald-500/35 rounded-2xl shadow-lg">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-200 tabular-nums">
+          W{summary.week}
+        </span>
+
+        <span
+          className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+            summary.campOutcome === 'breakthrough'
+              ? 'bg-emerald-500/20 text-emerald-300'
+              : summary.campOutcome === 'slump'
+              ? 'bg-rose-500/20 text-rose-300'
+              : summary.campOutcome === 'recovery'
+              ? 'bg-sky-500/20 text-sky-300'
+              : 'bg-indigo-500/20 text-indigo-300'
+          }`}
+        >
+          {summary.campOutcome === 'breakthrough'
+            ? '✨ Breakthrough'
+            : summary.campOutcome === 'slump'
+            ? '💥 Slump'
+            : summary.campOutcome === 'recovery'
+            ? '🌿 Recovery'
+            : '✅ Trained'}
+        </span>
+
+        <span className="text-xs font-semibold text-white truncate max-w-[180px]">
+          {summary.campTitle}
+        </span>
+
+        {summary.playerReports.length > 0 && (
           <span
-            className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-              summary.campOutcome === 'breakthrough'
-                ? 'bg-emerald-500/15 text-emerald-300'
-                : summary.campOutcome === 'slump'
-                ? 'bg-rose-500/15 text-rose-300'
-                : summary.campOutcome === 'recovery'
+            className={`text-[11px] font-semibold tabular-nums px-2 py-0.5 rounded-full ${
+              avgEnergyDelta >= 0
                 ? 'bg-sky-500/15 text-sky-300'
-                : 'bg-indigo-500/15 text-indigo-300'
+                : 'bg-amber-500/15 text-amber-300'
             }`}
           >
-            {summary.campOutcome === 'breakthrough'
-              ? 'Breakthrough'
-              : summary.campOutcome === 'slump'
-              ? 'Overtraining Slump'
-              : summary.campOutcome === 'recovery'
-              ? 'Recovery Week'
-              : 'Camp Completed'}
+            ⚡ {avgEnergyDelta >= 0 ? `+${avgEnergyDelta}` : avgEnergyDelta}%
           </span>
-          <span className="text-sm font-semibold text-white">
-            {summary.campTitle}
-          </span>
-          {summary.totalOutflow > 0 && (
-            <span className="text-xs tabular-nums text-amber-300">
-              -¥{summary.totalOutflow.toLocaleString()}
-            </span>
-          )}
-        </div>
+        )}
 
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss weekly summary"
-          className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
-        >
-          <X className="w-3.5 h-3.5" />
-          Dismiss
-        </button>
+        {statChips.map((chip) => (
+          <span
+            key={chip.text}
+            className={`text-[11px] font-semibold tabular-nums px-2 py-0.5 rounded-full ${
+              chip.positive
+                ? 'bg-emerald-500/15 text-emerald-300'
+                : 'bg-rose-500/15 text-rose-300'
+            }`}
+          >
+            {chip.text}
+          </span>
+        ))}
+
+        {rawGains.slice(0, 2).map((g) => (
+          <span
+            key={g}
+            className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300"
+          >
+            {g}
+          </span>
+        ))}
+
+        {unlockedTraits.slice(0, 2).map((traitLabel) => (
+          <span
+            key={traitLabel}
+            className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300"
+          >
+            {traitLabel}
+          </span>
+        ))}
+
+        {injuredPlayers.length > 0 && (
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300">
+            🩹 {injuredPlayers.join(', ')}
+          </span>
+        )}
+
+        {summary.matchSummary && (
+          <span
+            className={`text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full border ${
+              summary.matchSummary.pointsEarned === 3
+                ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                : summary.matchSummary.pointsEarned === 1
+                ? 'bg-amber-500/15 border-amber-500/35 text-amber-300'
+                : 'bg-rose-500/15 border-rose-500/35 text-rose-300'
+            }`}
+          >
+            ⚽ {summary.matchSummary.goalsFor}-{summary.matchSummary.goalsAgainst}
+            {summary.matchSummary.penaltyText ? ` (${summary.matchSummary.penaltyText})` : ''} · +
+            {summary.matchSummary.pointsEarned} Pts
+          </span>
+        )}
+
+        {summary.totalOutflow > 0 && (
+          <span className="text-[11px] tabular-nums font-medium text-amber-300/90">
+            -¥{summary.totalOutflow.toLocaleString()}
+          </span>
+        )}
       </div>
 
-      {summary.playerReports.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-          {summary.playerReports.map((rep) => (
-            <div
-              key={rep.playerId}
-              className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/60 space-y-1.5"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-semibold text-white truncate">
-                  {rep.playerName}
-                </span>
-                <span
-                  className={`text-[11px] tabular-nums font-semibold ${
-                    rep.energyDelta >= 0 ? 'text-sky-300' : 'text-amber-300'
-                  }`}
-                >
-                  {rep.energyDelta >= 0 ? '+' : ''}
-                  {rep.energyDelta}% NRG
-                </span>
-              </div>
-
-              {rep.statGains.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {rep.statGains.map((g, idx) => (
-                    <span
-                      key={idx}
-                      className={`text-[11px] tabular-nums font-medium px-1.5 py-0.5 rounded ${
-                        g.startsWith('-')
-                          ? 'bg-rose-500/15 text-rose-300'
-                          : 'bg-emerald-500/15 text-emerald-300'
-                      }`}
-                    >
-                      {g}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <span className="text-[11px] text-slate-500 block">
-                  No stat shift
-                </span>
-              )}
-
-              {rep.newTraits.map((tr) => (
-                <div
-                  key={tr.id}
-                  className="text-[11px] font-medium text-amber-300 bg-amber-500/15 rounded px-1.5 py-0.5"
-                >
-                  {tr.icon} {tr.name}
-                </div>
-              ))}
-
-              {rep.injuredReason && (
-                <div className="text-[11px] font-medium text-rose-300 bg-rose-500/15 rounded px-1.5 py-0.5">
-                  Injured: {rep.injuredReason}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {summary.matchSummary && (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-950/65 border border-indigo-500/30 text-xs">
-          <div>
-            <span className="uppercase text-indigo-300 font-semibold mr-2">
-              Sunday Result:
-            </span>
-            <span className="font-semibold text-white">
-              {summary.matchSummary.eventName}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 tabular-nums font-semibold">
-            <span className="px-2 py-0.5 rounded bg-slate-800 text-white">
-              {summary.matchSummary.goalsFor} - {summary.matchSummary.goalsAgainst}
-              {summary.matchSummary.penaltyText
-                ? ` (${summary.matchSummary.penaltyText})`
-                : ''}
-            </span>
-            <span
-              className={
-                summary.matchSummary.pointsEarned === 3
-                  ? 'text-emerald-300'
-                  : summary.matchSummary.pointsEarned === 1
-                  ? 'text-amber-300'
-                  : 'text-rose-300'
-              }
-            >
-              +{summary.matchSummary.pointsEarned} Pts
-            </span>
-            <span className="text-amber-300">
-              +¥{summary.matchSummary.fundsEarned.toLocaleString()}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {summary.notes.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-300">
-          {summary.notes.map((n, i) => (
-            <span
-              key={i}
-              className="px-2 py-0.5 rounded bg-slate-950/60 border border-slate-800/60"
-            >
-              {n}
-            </span>
-          ))}
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss weekly summary"
+        className="shrink-0 p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 }

@@ -392,3 +392,145 @@ export function LatestMatchReportCard({
     </div>
   );
 }
+
+export interface StatLetterGradeInfo {
+  grade: 'SS' | 'S' | 'A' | 'B' | 'C' | 'D' | 'E';
+  badgeClass: string;
+  textClass: string;
+}
+
+export function getStatLetterGrade(value: number): StatLetterGradeInfo {
+  if (value >= 75) {
+    return {
+      grade: 'SS',
+      badgeClass:
+        'bg-gradient-to-r from-amber-300 via-pink-300 to-cyan-300 text-slate-950 border-amber-200 font-black',
+      textClass: 'text-amber-300',
+    };
+  }
+  if (value >= 62) {
+    return {
+      grade: 'S',
+      badgeClass:
+        'bg-amber-400/20 text-amber-300 border-amber-400/50 font-black',
+      textClass: 'text-amber-300',
+    };
+  }
+  if (value >= 50) {
+    return {
+      grade: 'A',
+      badgeClass:
+        'bg-rose-500/20 text-rose-300 border-rose-400/50 font-extrabold',
+      textClass: 'text-rose-300',
+    };
+  }
+  if (value >= 40) {
+    return {
+      grade: 'B',
+      badgeClass:
+        'bg-emerald-500/20 text-emerald-300 border-emerald-400/50 font-extrabold',
+      textClass: 'text-emerald-300',
+    };
+  }
+  if (value >= 32) {
+    return {
+      grade: 'C',
+      badgeClass: 'bg-sky-500/20 text-sky-300 border-sky-400/50 font-bold',
+      textClass: 'text-sky-300',
+    };
+  }
+  if (value >= 24) {
+    return {
+      grade: 'D',
+      badgeClass:
+        'bg-indigo-500/20 text-indigo-300 border-indigo-400/50 font-bold',
+      textClass: 'text-indigo-300',
+    };
+  }
+  return {
+    grade: 'E',
+    badgeClass: 'bg-slate-800 text-slate-300 border-slate-700 font-bold',
+    textClass: 'text-slate-400',
+  };
+}
+
+export interface UnifiedMoodPillInfo {
+  icon: string;
+  label: string;
+  pillClass: string;
+  barClass: string;
+}
+
+export function getUnifiedMoodPill(
+  stamina: number,
+  stress: number
+): UnifiedMoodPillInfo {
+  if (stamina >= 75 && stress <= 35) {
+    return {
+      icon: '🤩',
+      label: 'Peak',
+      pillClass: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/50',
+      barClass: 'bg-gradient-to-r from-emerald-400 to-teal-300',
+    };
+  }
+  if (stamina >= 58 && stress <= 60) {
+    return {
+      icon: '😊',
+      label: 'Good',
+      pillClass: 'bg-sky-500/20 text-sky-200 border-sky-400/50',
+      barClass: 'bg-gradient-to-r from-sky-400 to-emerald-400',
+    };
+  }
+  if (stamina >= 42) {
+    return {
+      icon: '😐',
+      label: 'Tired',
+      pillClass: 'bg-amber-500/20 text-amber-200 border-amber-400/50',
+      barClass: 'bg-gradient-to-r from-amber-400 to-orange-400',
+    };
+  }
+  return {
+    icon: '😫',
+    label: 'Exhausted',
+    pillClass: 'bg-rose-500/25 text-rose-200 border-rose-400/50',
+    barClass: 'bg-gradient-to-r from-rose-500 to-red-500',
+  };
+}
+
+export function getCampStatChevrons(
+  campId: SquadCampId,
+  hasSpotlight: boolean
+): Record<'atk' | 'def' | 'tec' | 'cap', '' | '▲' | '▲▲' | '▲▲▲'> {
+  switch (campId) {
+    case 'camp_attack':
+      return {
+        atk: hasSpotlight ? '▲▲▲' : '▲▲',
+        def: '',
+        tec: '▲',
+        cap: '▲',
+      };
+    case 'camp_defense':
+      return {
+        atk: '',
+        def: hasSpotlight ? '▲▲▲' : '▲▲',
+        tec: '',
+        cap: '▲',
+      };
+    case 'camp_possession_gk':
+      return {
+        atk: '',
+        def: '▲',
+        tec: hasSpotlight ? '▲▲▲' : '▲▲',
+        cap: '▲',
+      };
+    case 'camp_scrimmage':
+      return {
+        atk: '▲',
+        def: '▲',
+        tec: '▲',
+        cap: hasSpotlight ? '▲▲▲' : '▲▲',
+      };
+    case 'camp_recovery':
+      return { atk: '', def: '', tec: '', cap: '' };
+  }
+}

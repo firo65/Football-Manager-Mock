@@ -4,7 +4,6 @@ import {
   calculateCampFailureChance,
   calculatePlayerPositionalRating,
   getCampRolePreview,
-  getPlayerConditionSummary,
   getSquadEnergySummary,
 } from '../simulationEngine';
 import type {
@@ -130,14 +129,14 @@ export function TrainingPlannerView({
         <>
           <CoachTipBanner
             hintId="hint_training_spotlights"
-            title="Spotlights & Stamina balance"
-            body="Two camps roll Weekly Spotlights every Monday with extra gains or cash, though intense drills cost more energy. Watch the Projected Energy badge on each card—going under 64% weakens Sunday Match OVR."
+            title="Spotlights & Stamina"
+            body="2 camps roll Weekly Spotlights each Monday. Keep Projected Energy near 60%+ to avoid Match OVR drops."
             guideSection="energy"
           />
           <CoachTipBanner
             hintId="hint_fatigue_warning"
-            title="Squad Energy is dipping below 60%"
-            body="Running heavy drills while tired spikes Slump Risk (half gains) and can injure players. Consider Full Squad Recovery (+42 Energy, 0% risk) or a Cryo spotlight."
+            title="Low Squad Energy (<60%)"
+            body="Heavy drills now risk Slumps & Injuries—use Recovery (+42 NRG, 0% risk) or Cryo."
             tone="amber"
             guideSection="energy"
             hidden={!(!hasRunCampThisWeek && squadEnergy.avgStamina < 60)}
@@ -197,14 +196,17 @@ export function TrainingPlannerView({
             </div>
             {isTargetScouted ? (
               <p className="text-xs text-amber-300">
-                Scouted: {targetFixture.favoredTactic} •{' '}
-                {targetFixture.opponentFormation} (Counter:{' '}
-                {targetFixture.recommendedCounter} /{' '}
-                {targetFixture.recommendedFormation ?? 'Any'})
+                {targetFixture.favoredTactic} • {targetFixture.opponentFormation}{' '}
+                <span className="text-slate-300">
+                  (Counter: {targetFixture.recommendedCounter})
+                </span>
               </p>
             ) : (
-              <p className="text-xs text-slate-400">
-                {targetFixture.scoutingClue ?? targetFixture.description}
+              <p
+                title={targetFixture.scoutingClue ?? targetFixture.description}
+                className="text-xs text-slate-400"
+              >
+                Unscouted — scout in Match Engine to reveal tactic &amp; shape.
               </p>
             )}
             {freshBounceActive && (
@@ -227,13 +229,12 @@ export function TrainingPlannerView({
 
       {/* Weekly Spotlights */}
       {weeklySpotlights.length > 0 && (
-        <div className="bg-slate-900/75 border border-amber-500/35 rounded-2xl p-4 space-y-2.5">
+        <div className="bg-slate-900/75 border border-amber-500/35 rounded-2xl p-3.5 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               Week {displayWeek} Spotlights
             </span>
-            <span className="text-xs text-slate-400">Re-rolls weekly</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {weeklySpotlights.map((sp) => {
@@ -246,24 +247,21 @@ export function TrainingPlannerView({
                   key={sp.campId}
                   type="button"
                   onClick={() => onSelectCamp(sp.campId)}
-                  className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between gap-3 ${
+                  className={`px-3 py-2 rounded-xl border text-left transition cursor-pointer flex items-center justify-between gap-3 ${
                     isPicked
                       ? 'bg-amber-500/15 border-amber-400 text-white'
                       : 'bg-slate-950/60 hover:bg-slate-900 border-amber-500/30 text-slate-200'
                   }`}
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5 text-xs font-bold">
-                      <span className="text-amber-300">{sp.badge}</span>
-                      <span>•</span>
-                      <span>
-                        {targetCamp?.emoji} {targetCamp?.title}
-                      </span>
-                    </div>
-                    <p className="text-xs text-emerald-300">{sp.effectSummary}</p>
+                  <div className="text-xs font-semibold truncate">
+                    <span className="text-amber-300">{sp.badge}</span>{' '}
+                    <span className="text-slate-500">•</span>{' '}
+                    <span>
+                      {targetCamp?.emoji} {targetCamp?.title}
+                    </span>
                   </div>
-                  <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-200 shrink-0">
-                    {isPicked ? 'Selected' : 'Focus'}
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-200 shrink-0">
+                    {isPicked ? 'Selected' : 'Pick'}
                   </span>
                 </button>
               );
@@ -311,6 +309,7 @@ export function TrainingPlannerView({
             <button
               key={camp.id}
               type="button"
+              title={camp.description}
               onClick={() => onSelectCamp(camp.id)}
               className={`p-4 rounded-2xl border text-left flex flex-col justify-between space-y-3 transition cursor-pointer ${
                 isSelected
@@ -334,7 +333,7 @@ export function TrainingPlannerView({
                         : 'bg-slate-800 text-slate-300'
                     }`}
                   >
-                    {failPct}% Fail
+                    {failPct}% Risk
                   </span>
                 </div>
 
@@ -344,12 +343,11 @@ export function TrainingPlannerView({
                   </div>
                 )}
 
-                <h3 className="text-sm font-bold text-white">{camp.title}</h3>
-                <p className="text-xs text-emerald-300 font-medium">
+                <h3 className="text-sm font-bold text-white leading-snug">
+                  {camp.title}
+                </h3>
+                <p className="text-[11px] text-emerald-300 font-medium leading-snug">
                   {camp.subtitle}
-                </p>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {camp.description}
                 </p>
               </div>
 
@@ -388,15 +386,13 @@ export function TrainingPlannerView({
       <div className="bg-slate-900/75 border border-slate-800/70 rounded-2xl p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Projected Effect of{' '}
+            Projected Effect:{' '}
             <span className="text-emerald-300">{activeCamp.title}</span>
           </h3>
-          <span className="text-xs text-slate-400">{activeCamp.subtitle}</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
           {team.players.map((p) => {
-            const cond = getPlayerConditionSummary(p);
             const ovr = Math.round(calculatePlayerPositionalRating(p));
             const campPreview = getCampRolePreview(selectedCampId, p.position);
             const badgeClasses =
@@ -415,7 +411,7 @@ export function TrainingPlannerView({
               >
                 <div className="flex items-center justify-between gap-1">
                   <span className="font-semibold text-white truncate">
-                    {p.name}{' '}
+                    {p.name.split(' ')[0]}{' '}
                     <span className="text-[11px] text-slate-400">
                       ({p.position})
                     </span>
@@ -434,11 +430,8 @@ export function TrainingPlannerView({
                   )}
                 </div>
 
-                <div className="flex justify-between text-[11px] text-slate-400 tabular-nums">
-                  <span>{cond.label}</span>
-                  <span>
-                    {p.status.stamina}% NRG • {p.status.stress}% STR
-                  </span>
+                <div className="text-[11px] text-slate-400 tabular-nums">
+                  {p.status.stamina}% NRG
                 </div>
               </div>
             );

@@ -281,6 +281,13 @@ function runSimulatedCampaign(strategy: StrategyId): {
     ) {
       chosenTactic = 'Balanced';
     }
+    if (strategy === 'optimal_counter' && chosenTactic === 'Attacking') {
+      const postCampEnergy = getSquadEnergySummary(state.team.players);
+      if (postCampEnergy.avgStamina < 56) {
+        chosenTactic =
+          fixture.favoredTactic === 'Attacking' ? 'Counter' : 'Balanced';
+      }
+    }
     const chosenFormation: FormationType =
       strategy === 'optimal_counter'
         ? pickBestFormation(

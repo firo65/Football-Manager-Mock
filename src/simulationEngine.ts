@@ -882,6 +882,253 @@ export function getFormationProfile(
   }
 }
 
+export interface FormationTraitResonance {
+  formation: FormationType;
+  active: boolean;
+  icons: string;
+  bonusPct: number;
+  attackMult: number;
+  midfieldMult: number;
+  defenseMult: number;
+  paceMult: number;
+  activeLabel: string;
+  unlockHint: string;
+}
+
+export function getFormationTraitResonance(
+  team: Player[],
+  formation: FormationType
+): FormationTraitResonance {
+  const hasFinisher = team.some((p) => hasPlayerTrait(p, 'clinical_finisher'));
+  const hasTurbo = team.some((p) => hasPlayerTrait(p, 'turbo_engine'));
+  const hasMaestro = team.some((p) => hasPlayerTrait(p, 'deep_playmaker'));
+  const hasClutch = team.some((p) => hasPlayerTrait(p, 'clutch_leader'));
+  const hasWall = team.some((p) => hasPlayerTrait(p, 'brick_wall'));
+  const hasSweeper = team.some((p) => hasPlayerTrait(p, 'sweeper_keeper'));
+
+  if (formation === '1-1-1-2') {
+    const unlockHint =
+      'Unlock ⚡ Clinical Finisher (42+ SHO) or 💨 Turbo Engine (42+ PAC) to boost 1-1-1-2';
+    if (hasFinisher && hasTurbo) {
+      return {
+        formation,
+        active: true,
+        icons: '⚡💨',
+        bonusPct: 8,
+        attackMult: 1.08,
+        midfieldMult: 1.0,
+        defenseMult: 1.0,
+        paceMult: 1.05,
+        activeLabel: '⚡💨 Twin-Press Resonance (+8% ATK, +5% PAC)',
+        unlockHint,
+      };
+    }
+    if (hasFinisher) {
+      return {
+        formation,
+        active: true,
+        icons: '⚡',
+        bonusPct: 5,
+        attackMult: 1.05,
+        midfieldMult: 1.0,
+        defenseMult: 1.0,
+        paceMult: 1.02,
+        activeLabel: '⚡ Finisher Resonance (+5% ATK)',
+        unlockHint,
+      };
+    }
+    if (hasTurbo) {
+      return {
+        formation,
+        active: true,
+        icons: '💨',
+        bonusPct: 4,
+        attackMult: 1.03,
+        midfieldMult: 1.0,
+        defenseMult: 1.0,
+        paceMult: 1.04,
+        activeLabel: '💨 Turbo Press Resonance (+4% PAC/ATK)',
+        unlockHint,
+      };
+    }
+    return {
+      formation,
+      active: false,
+      icons: '',
+      bonusPct: 0,
+      attackMult: 1.0,
+      midfieldMult: 1.0,
+      defenseMult: 1.0,
+      paceMult: 1.0,
+      activeLabel: '',
+      unlockHint,
+    };
+  }
+
+  if (formation === '1-1-2-1') {
+    const unlockHint =
+      'Unlock 🎯 Tempo Maestro (42+ PAS) or 👑 Clutch Leader (105+ Aura) to boost 1-1-2-1';
+    if (hasMaestro && hasClutch) {
+      return {
+        formation,
+        active: true,
+        icons: '🎯👑',
+        bonusPct: 8,
+        attackMult: 1.04,
+        midfieldMult: 1.08,
+        defenseMult: 1.0,
+        paceMult: 1.0,
+        activeLabel: '🎯👑 Diamond Maestro Resonance (+8% MID, +4% ATK)',
+        unlockHint,
+      };
+    }
+    if (hasMaestro) {
+      return {
+        formation,
+        active: true,
+        icons: '🎯',
+        bonusPct: 5,
+        attackMult: 1.03,
+        midfieldMult: 1.05,
+        defenseMult: 1.0,
+        paceMult: 1.0,
+        activeLabel: '🎯 Tempo Maestro Resonance (+5% MID, +3% ATK)',
+        unlockHint,
+      };
+    }
+    if (hasClutch) {
+      return {
+        formation,
+        active: true,
+        icons: '👑',
+        bonusPct: 4,
+        attackMult: 1.02,
+        midfieldMult: 1.04,
+        defenseMult: 1.0,
+        paceMult: 1.0,
+        activeLabel: '👑 Clutch Diamond Resonance (+4% MID)',
+        unlockHint,
+      };
+    }
+    return {
+      formation,
+      active: false,
+      icons: '',
+      bonusPct: 0,
+      attackMult: 1.0,
+      midfieldMult: 1.0,
+      defenseMult: 1.0,
+      paceMult: 1.0,
+      activeLabel: '',
+      unlockHint,
+    };
+  }
+
+  if (formation === '1-2-1-1') {
+    const unlockHint =
+      'Unlock 🧱 Brick Wall (42+ DEF) or 🧤 Sweeper Keeper (42+ REF/40+ POS) to boost 1-2-1-1';
+    if (hasWall && hasSweeper) {
+      return {
+        formation,
+        active: true,
+        icons: '🧱🧤',
+        bonusPct: 8,
+        attackMult: 1.0,
+        midfieldMult: 1.03,
+        defenseMult: 1.08,
+        paceMult: 1.0,
+        activeLabel: '🧱🧤 Fortress Wall Resonance (+8% DEF, +3% MID)',
+        unlockHint,
+      };
+    }
+    if (hasWall) {
+      return {
+        formation,
+        active: true,
+        icons: '🧱',
+        bonusPct: 5,
+        attackMult: 1.0,
+        midfieldMult: 1.0,
+        defenseMult: 1.05,
+        paceMult: 1.0,
+        activeLabel: '🧱 Brick Wall Resonance (+5% DEF)',
+        unlockHint,
+      };
+    }
+    if (hasSweeper) {
+      return {
+        formation,
+        active: true,
+        icons: '🧤',
+        bonusPct: 5,
+        attackMult: 1.0,
+        midfieldMult: 1.0,
+        defenseMult: 1.05,
+        paceMult: 1.0,
+        activeLabel: '🧤 Sweeper Keeper Resonance (+5% DEF)',
+        unlockHint,
+      };
+    }
+    return {
+      formation,
+      active: false,
+      icons: '',
+      bonusPct: 0,
+      attackMult: 1.0,
+      midfieldMult: 1.0,
+      defenseMult: 1.0,
+      paceMult: 1.0,
+      activeLabel: '',
+      unlockHint,
+    };
+  }
+
+  // '1-2-2' (and fallback)
+  const totalTraits = team.reduce((s, p) => s + (p.traits?.length ?? 0), 0);
+  const unlockHint =
+    'Unlock any 2 Squad Traits (42+ in a key stat) to boost 1-2-2 Box (+All Zones)';
+  if ((hasTurbo && hasClutch) || totalTraits >= 3) {
+    return {
+      formation,
+      active: true,
+      icons: '💨👑',
+      bonusPct: 6,
+      attackMult: 1.04,
+      midfieldMult: 1.04,
+      defenseMult: 1.04,
+      paceMult: 1.04,
+      activeLabel: '💨👑 Balanced Box Resonance (+4% All Zones)',
+      unlockHint,
+    };
+  }
+  if (hasTurbo || hasClutch || totalTraits >= 2) {
+    return {
+      formation,
+      active: true,
+      icons: hasClutch ? '👑' : '💨',
+      bonusPct: 4,
+      attackMult: 1.03,
+      midfieldMult: 1.03,
+      defenseMult: 1.03,
+      paceMult: 1.03,
+      activeLabel: '✨ Box All-Round Resonance (+3% All Zones)',
+      unlockHint,
+    };
+  }
+  return {
+    formation,
+    active: false,
+    icons: '',
+    bonusPct: 0,
+    attackMult: 1.0,
+    midfieldMult: 1.0,
+    defenseMult: 1.0,
+    paceMult: 1.0,
+    activeLabel: '',
+    unlockHint,
+  };
+}
+
 export function getCaptainRallyBoostMultiplier(team: Player[]): {
   multiplier: number;
   boostPct: number;
@@ -1060,6 +1307,13 @@ export function computeSquadZonePreview(
     videoBriefBonus *
     traitClutchMult;
 
+  const avgSquadStamina =
+    team.reduce((sum, p) => sum + p.status.stamina, 0) / team.length;
+  const stanceEnergy = getTacticalStanceEnergyProfile(tactic, avgSquadStamina);
+  const stanceAtkPacMult = 1 + stanceEnergy.attackPaceModPct / 100;
+  const stanceDefMult = 1 + stanceEnergy.defenseModPct / 100;
+  const formationResonance = getFormationTraitResonance(team, formation);
+
   const attackBonus =
     (tactic === 'Attacking' ? 1.12 : tactic === 'Counter' ? 0.92 : 1.02) *
     formationProfile.attackMult *
@@ -1068,7 +1322,9 @@ export function computeSquadZonePreview(
     warRoomBonus *
     freshAttackDefenseBonus *
     traitAttackMult *
-    eventAtkMult;
+    eventAtkMult *
+    stanceAtkPacMult *
+    formationResonance.attackMult;
   const defenseBonus =
     (tactic === 'Attacking' ? 0.89 : tactic === 'Counter' ? 1.1 : 1.02) *
     formationProfile.defenseMult *
@@ -1078,20 +1334,25 @@ export function computeSquadZonePreview(
     freshAttackDefenseBonus *
     traitDefenseMult *
     traitKeeperMult *
-    eventDefMult;
+    eventDefMult *
+    stanceDefMult *
+    formationResonance.defenseMult;
   const midfieldBonus =
     (tactic === 'Attacking' ? 1.01 : tactic === 'Counter' ? 0.91 : 1.04) *
     formationProfile.midfieldMult *
     sharedZoneMult *
     traitMidfieldMult *
-    eventMidMult;
+    eventMidMult *
+    formationResonance.midfieldMult;
   const transitionBonus =
     (tactic === 'Counter' ? 1.1 : tactic === 'Attacking' ? 0.96 : 1.02) *
     formationProfile.paceMult *
     sharedZoneMult *
     freshPaceBonus *
     traitPaceMult *
-    eventPacMult;
+    eventPacMult *
+    stanceAtkPacMult *
+    formationResonance.paceMult;
 
   const activeOutfieldPool = outfielders.length > 0 ? outfielders : team;
   const attackersPool = activeOutfieldPool.filter((p) => {
@@ -2111,7 +2372,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'legend_visit',
     badge: '🌟 Guest Pro',
     title: 'Guest Tactician Visit',
-    effectSummary: '+20% Camp Gains & +2 Cap Confidence (+3 Energy Drain)',
+    effectSummary: '+20% Gains • +2 Conf • -3 NRG',
     gainMultiplier: 1.2,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 3,
@@ -2128,7 +2389,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'cryo_popup',
     badge: '❄️ Cryo Pop-up',
     title: 'Free Cryo Recovery Van',
-    effectSummary: '-40% Energy & Stress Drain, -25% Slump Risk',
+    effectSummary: '-40% Drain • -25% Slump Risk',
     gainMultiplier: 1.0,
     energyCostMultiplier: 0.6,
     extraEnergyCost: 0,
@@ -2144,8 +2405,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'trait_spark',
     badge: '⚡ Trait Spark',
     title: 'Specialist Trait Clinic',
-    effectSummary:
-      '+1 Bonus Primary Stat per Starter & +2 Cap Passion (+4 Energy, +3% Risk)',
+    effectSummary: '+1 Main Stat • +2 Pas • -4 NRG / +3% Risk',
     gainMultiplier: 1.0,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 4,
@@ -2162,7 +2422,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'sponsor_showcase',
     badge: '📺 Broadcast',
     title: 'Live Practice Showcase',
-    effectSummary: '+¥800 Cash, +130 Squad Fans & +2 Cap Charisma',
+    effectSummary: '+¥800 • +130 Fans • +2 Char',
     gainMultiplier: 1.0,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 0,
@@ -2179,7 +2439,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'double_intensity',
     badge: '🔥 Double Shift',
     title: 'Rainbow Double-Shift Surge',
-    effectSummary: '+32% Camp Gains (+10% Slump Risk, +8 Energy Drain)',
+    effectSummary: '+32% Gains • +10% Risk • -8 NRG',
     gainMultiplier: 1.32,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 8,
@@ -2195,7 +2455,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'scout_clinic',
     badge: '📋 Video Scout',
     title: 'Opponent Video Clinic',
-    effectSummary: 'Free Week Scout (or +¥400) & +8% Camp Gains',
+    effectSummary: 'Free Scout (+¥400) • +8% Gains',
     gainMultiplier: 1.08,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 0,
@@ -2211,7 +2471,7 @@ const SPOTLIGHT_BLUEPRINTS: Record<
     kind: 'miracle_spa',
     badge: '🫧 Miracle Spa',
     title: 'Pro Hydrotherapy Retreat',
-    effectSummary: '+9 Extra Recovery Stamina, +3 Morale & +1 Cap Charisma',
+    effectSummary: '+9 Recovery NRG • +3 Morale • +1 Char',
     gainMultiplier: 1.0,
     energyCostMultiplier: 1.0,
     extraEnergyCost: 0,
@@ -3659,6 +3919,90 @@ export function getTacticalMatchupMultiplier(
     attackMult: 0.96,
     defenseMult: 0.96,
     label: `Tactical Disadvantage (${ourTactic} vs ${opponentTactic} -4%)`,
+  };
+}
+
+export interface TacticalStanceEnergyProfile {
+  tactic: TacticalStyle;
+  baseStaminaCost: number;
+  baseStressCost: number;
+  effectiveStaminaCost: number;
+  attackPaceModPct: number;
+  defenseModPct: number;
+  conditionNote: string;
+  conditionTone: 'emerald' | 'sky' | 'amber' | 'rose';
+}
+
+export function getTacticalStanceEnergyProfile(
+  tactic: TacticalStyle | string,
+  avgStamina: number,
+  options?: {
+    hasStrengthGym?: boolean;
+    hasCryoGel?: boolean;
+  }
+): TacticalStanceEnergyProfile {
+  const gymFactor = options?.hasStrengthGym ? 0.85 : 1.0;
+  const cryoFactor = options?.hasCryoGel ? 0.45 : 1.0;
+
+  if (tactic === 'Attacking') {
+    const isFresh = avgStamina >= 75;
+    const isTired = avgStamina < 58;
+    const baseStaminaCost = isTired ? 15 : 12;
+    const baseStressCost = 6;
+    return {
+      tactic: 'Attacking',
+      baseStaminaCost,
+      baseStressCost,
+      effectiveStaminaCost: Math.max(
+        1,
+        Math.round(baseStaminaCost * gymFactor * cryoFactor)
+      ),
+      attackPaceModPct: isFresh ? 4 : isTired ? -6 : 0,
+      defenseModPct: isTired ? -6 : 0,
+      conditionNote: isFresh
+        ? '🔥 Fresh Press (+4% ATK/PAC)'
+        : isTired
+        ? '⚠️ Heavy Legs (-6% Press)'
+        : 'High Drain',
+      conditionTone: isFresh ? 'emerald' : isTired ? 'rose' : 'amber',
+    };
+  }
+
+  if (tactic === 'Counter') {
+    const isTired = avgStamina < 60;
+    const baseStaminaCost = 3;
+    const baseStressCost = 2;
+    return {
+      tactic: 'Counter',
+      baseStaminaCost,
+      baseStressCost,
+      effectiveStaminaCost: Math.max(
+        1,
+        Math.round(baseStaminaCost * gymFactor * cryoFactor)
+      ),
+      attackPaceModPct: isTired ? 2 : 0,
+      defenseModPct: isTired ? 4 : 0,
+      conditionNote: isTired
+        ? '🛡️ Low-Block Save (+4% DEF)'
+        : 'Saves ⚡ Energy',
+      conditionTone: 'emerald',
+    };
+  }
+
+  const baseStaminaCost = 7;
+  const baseStressCost = 4;
+  return {
+    tactic: 'Balanced',
+    baseStaminaCost,
+    baseStressCost,
+    effectiveStaminaCost: Math.max(
+      1,
+      Math.round(baseStaminaCost * gymFactor * cryoFactor)
+    ),
+    attackPaceModPct: 0,
+    defenseModPct: 0,
+    conditionNote: 'Steady Tempo',
+    conditionTone: 'sky',
   };
 }
 

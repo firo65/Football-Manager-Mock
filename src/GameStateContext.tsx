@@ -68,6 +68,7 @@ import {
   getPlayerConditionSummary,
   getRoleTrainingMultiplier,
   getSquadEnergySummary,
+  getTacticalStanceEnergyProfile,
   hasPlayerTrait,
   PLAYER_TRAIT_CATALOG,
   processSquadCampWeek,
@@ -473,7 +474,8 @@ function applyCompletedMatchToState(
   rawResult: MatchResult,
   isExhibition: boolean,
   activeTactic: TacticalStyle | string,
-  extraRallyStaminaCost: number = 0
+  extraRallyStaminaCost: number = 0,
+  firstHalfTactic?: TacticalStyle | string
 ): GameState {
   const hasYouthAcademy =
     state.team.unlockedFacilities.includes('youth_academy');
@@ -515,10 +517,36 @@ function applyCompletedMatchToState(
   const fansPerPlayer = Math.floor(fansGained / participantCount);
 
   const captainBuffs = getCaptainBuffMultipliers(state.team.players);
+  const participantsBefore = state.team.players.filter((p) =>
+    result.participatingPlayerIds.includes(p.id)
+  );
+  const staminaPool =
+    participantsBefore.length > 0 ? participantsBefore : state.team.players;
+  const avgStaminaBeforeMatch =
+    staminaPool.length > 0
+      ? staminaPool.reduce((sum, p) => sum + p.status.stamina, 0) /
+        staminaPool.length
+      : 70;
+  const secondHalfProfile = getTacticalStanceEnergyProfile(
+    activeTactic,
+    avgStaminaBeforeMatch
+  );
+  const firstHalfProfile = firstHalfTactic
+    ? getTacticalStanceEnergyProfile(firstHalfTactic, avgStaminaBeforeMatch)
+    : null;
+  const rawStaminaCost = firstHalfProfile
+    ? (firstHalfProfile.baseStaminaCost + secondHalfProfile.baseStaminaCost) / 2
+    : secondHalfProfile.baseStaminaCost;
+  const rawStressCost = firstHalfProfile
+    ? Math.round(
+        (firstHalfProfile.baseStressCost + secondHalfProfile.baseStressCost) / 2
+      )
+    : secondHalfProfile.baseStressCost;
+
   const baseMatchStaminaCost =
-    (activeTactic === 'Attacking' ? 9 : 7) * (hasStrengthGym ? 0.85 : 1.0) +
-    extraRallyStaminaCost;
-  const baseMatchStressCost = 4 + (extraRallyStaminaCost > 0 ? 4 : 0);
+    rawStaminaCost * (hasStrengthGym ? 0.85 : 1.0) + extraRallyStaminaCost;
+  const baseMatchStressCost =
+    rawStressCost + (extraRallyStaminaCost > 0 ? 4 : 0);
   const matchMoraleDelta = isExhibition
     ? 0
     : rawResult.pointsEarned === 3
@@ -553,11 +581,14 @@ function applyCompletedMatchToState(
       stress: clamp0To100(player.status.stress + stressCost),
       morale: clamp0To100(player.status.morale + matchMoraleDelta),
     };
+    const redlineStrainTriggered =
+      activeTactic === 'Attacking'
+        ? nextStatus.stamina < 24 && nextStatus.stress > 72
+        : nextStatus.stamina < 20 && nextStatus.stress > 75;
     const sufferedRedlineStrain =
       !isExhibition &&
       !(player.injuryWeeksRemaining && player.injuryWeeksRemaining > 0) &&
-      nextStatus.stamina < 20 &&
-      nextStatus.stress > 75;
+      redlineStrainTriggered;
     if (sufferedRedlineStrain) {
       postMatchInjuryLogs.push(
         `[INJURY ALERT] ${player.name} pulled a hamstring playing into the red zone (1 wk at -38% eff — Physio Rehab ¥800 available).`
@@ -986,7 +1017,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         rawResult,
         isExhibition,
         tactic,
-        captainRally ? 8 : 0
+        captainRally ? 8 : 0,
+        state.halftimeState.tactic
       );
     }
 

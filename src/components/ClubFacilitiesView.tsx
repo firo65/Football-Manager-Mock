@@ -28,15 +28,15 @@ export function ClubFacilitiesView({
           Club Infrastructure &amp; Captain Milestones
         </h2>
         <p className="text-sm text-slate-400">
-          Invest match earnings into Tier-1 &amp; Tier-2 facilities and track seasonal Captain perks.
+          Unlock Club Facilities for season-wide bonuses and track Captain Milestones.
         </p>
       </div>
 
       {!isCampaignOver && (
         <CoachTipBanner
           hintId="hint_club_facilities"
-          title="Invest early in Facilities"
-          body="Upgrades like Conditioning Gym and Medical Rehab Center trigger every single week—buying Tier-1 upgrades in Weeks 2–4 saves huge stamina and cuts slump risk before the Week 6 checkpoint."
+          title="Early Facilities Pay Off"
+          body="Tier-1 Gym & Rehab reduce drain and slump risk every week from kickoff to Week 12."
           guideSection="season"
         />
       )}
@@ -63,7 +63,8 @@ export function ClubFacilitiesView({
               return (
                 <div
                   key={m.id}
-                  className={`p-3.5 rounded-xl border space-y-2 ${
+                  title={m.description}
+                  className={`p-3 rounded-xl border space-y-2 ${
                     m.isCompleted
                       ? 'bg-emerald-950/25 border-emerald-500/35'
                       : m.isFailed
@@ -81,15 +82,14 @@ export function ClubFacilitiesView({
                       {m.title}
                     </span>
                     <span className="text-[11px] tabular-nums px-2 py-0.5 rounded bg-amber-500/12 text-amber-300">
-                      +{m.rewardPerk.amount} {m.rewardPerk.type} (Due Wk{' '}
-                      {m.deadlineWeek})
+                      +{m.rewardPerk.amount} {m.rewardPerk.type} • Wk{' '}
+                      {m.deadlineWeek}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">{m.description}</p>
                   <div className="space-y-1">
                     <div className="flex justify-between text-[11px] tabular-nums text-slate-300">
                       <span>
-                        Progress: {m.currentValue} / {m.targetValue}
+                        {m.currentValue} / {m.targetValue}
                       </span>
                       <span>{pct}%</span>
                     </div>
@@ -130,6 +130,7 @@ export function ClubFacilitiesView({
               return (
                 <div
                   key={fac.id}
+                  title={fac.description}
                   className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
                     isUnlocked
                       ? 'bg-emerald-950/20 border-emerald-500/30'
@@ -147,7 +148,7 @@ export function ClubFacilitiesView({
                     </p>
                     <p className="text-xs text-emerald-300">{fac.perkSummary}</p>
                     <p className="text-[11px] tabular-nums text-slate-400">
-                      Upkeep: ¥{fac.weeklyUpkeep}/wk
+                      Upkeep ¥{fac.weeklyUpkeep}/wk
                     </p>
                   </div>
                   {!isUnlocked && (

@@ -1,5 +1,4 @@
 import { Crown, FastForward, Sparkles, Swords, TrendingUp } from 'lucide-react';
-import { SQUAD_CAMP_OPTIONS } from '../mockData';
 import {
   calculatePlayerPositionalRating,
   getPlayerConditionSummary,
@@ -79,17 +78,17 @@ export function ManagerDeskView({
         <>
           <CoachTipBanner
             hintId="hint_desk_loop"
-            title="How each week works (2 steps)"
-            body="1) Pick a Mon–Fri Squad Camp below or in Training Planner to grow stats, then 2) open 5v5 Match Engine to scout your opponent and kick off Sunday's match. The Week Flow checklist on the left keeps track for you."
+            title="Weekly loop"
+            body="1) Pick a Mon–Fri Camp, then 2) Scout & play Sunday's 5v5 Match."
             guideSection="loop"
-            actionLabel="Open Training Planner"
+            actionLabel="Training"
             onAction={() => onNavigate('schedule')}
             hidden={matchHistoryCount >= 2}
           />
           <CoachTipBanner
             hintId="hint_week5_checkpoint"
-            title="Board Checkpoint next week (Week 6)"
-            body={`You need 9+ League Points by the end of Week 6 to stay in the campaign (currently ${leaguePoints} pts). Check Scouting, Pre-Match Prep, and Stamina before kickoff.`}
+            title="Week 6 Board Cut"
+            body={`Need 9+ pts by next week (currently ${leaguePoints} pts).`}
             tone="amber"
             guideSection="season"
             hidden={!(displayWeek === 5 && leaguePoints < 9)}
@@ -115,7 +114,7 @@ export function ManagerDeskView({
           />
         </div>
 
-        {/* Calm Right Command Deck (replaces duplicate hero + 3-card flow row) */}
+        {/* Calm Right Command Deck */}
         <div className="lg:col-span-7 bg-slate-900/75 border border-slate-800/70 rounded-2xl p-5 flex flex-col justify-between space-y-4">
           <div className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -123,12 +122,12 @@ export function ManagerDeskView({
                 <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
                   Week {displayWeek} of {seasonLength} • {currentScheduledFixture.stage}
                 </span>
-                <h2 className="text-xl sm:text-2xl font-bold text-white">
+                <h2
+                  title={currentScheduledFixture.description}
+                  className="text-xl sm:text-2xl font-bold text-white"
+                >
                   {currentScheduledFixture.name}
                 </h2>
-                <p className="text-sm text-slate-400 leading-relaxed">
-                  {currentScheduledFixture.description}
-                </p>
               </div>
             </div>
 
@@ -178,12 +177,12 @@ export function ManagerDeskView({
             </div>
           </div>
 
-          {/* Quick Focus + Weekly Spotlights */}
+          {/* Quick Focus */}
           {!isCampaignOver &&
             !hasRunCampThisWeek &&
             !hasPlayedMatchThisWeek &&
             !halftimeState && (
-              <div className="p-3.5 rounded-xl bg-slate-950/55 border border-slate-800/60 space-y-2.5">
+              <div className="p-3.5 rounded-xl bg-slate-950/55 border border-slate-800/60 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-emerald-400">
                     Quick Mon–Fri Focus
@@ -195,33 +194,6 @@ export function ManagerDeskView({
                     onSelectCamp={onSelectCamp}
                   />
                 </div>
-
-                {weeklySpotlights.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60 text-xs">
-                    <span className="font-semibold text-amber-300">
-                      Wk {displayWeek} Spotlights:
-                    </span>
-                    {weeklySpotlights.map((sp) => {
-                      const campDef = SQUAD_CAMP_OPTIONS.find(
-                        (c) => c.id === sp.campId
-                      );
-                      return (
-                        <button
-                          key={sp.campId}
-                          type="button"
-                          onClick={() => {
-                            onSelectCamp(sp.campId);
-                            onNavigate('schedule');
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-amber-500/12 hover:bg-amber-500/20 border border-amber-400/35 text-amber-100 text-[11px] font-medium cursor-pointer transition"
-                        >
-                          <strong className="text-amber-300">{sp.badge}</strong> on{' '}
-                          {campDef?.emoji} {campDef?.title.split(' ')[0]} ({sp.effectSummary})
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             )}
 
@@ -243,7 +215,7 @@ export function ManagerDeskView({
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
               {nextScheduledFixture && (
                 <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 tabular-nums">
-                  Up Next (Wk {nextScheduledFixture.week}):{' '}
+                  Next (Wk {nextScheduledFixture.week}):{' '}
                   <strong className="text-white">
                     {nextScheduledFixture.opponentName}
                   </strong>{' '}
@@ -252,7 +224,6 @@ export function ManagerDeskView({
               )}
               {lastCampOutcome && (
                 <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
-                  Last:{' '}
                   {lastCampOutcome === 'breakthrough'
                     ? 'Breakthrough (+35%)'
                     : lastCampOutcome === 'slump'
@@ -267,7 +238,7 @@ export function ManagerDeskView({
         </div>
       </div>
 
-      {/* Slimmed 5-a-Side Squad Strip (no duplicate stamina label) */}
+      {/* Slimmed 5-a-Side Squad Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {team.players.map((player) => {
           const posRating = calculatePlayerPositionalRating(player);
@@ -307,23 +278,11 @@ export function ManagerDeskView({
                 </div>
               </div>
 
-              {((player.injuryWeeksRemaining ?? 0) > 0 ||
-                (player.traits && player.traits.length > 0)) && (
-                <div className="flex flex-wrap gap-1">
-                  {(player.injuryWeeksRemaining ?? 0) > 0 && (
-                    <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300">
-                      Inj {player.injuryWeeksRemaining}w
-                    </span>
-                  )}
-                  {player.traits?.slice(0, 2).map((tr) => (
-                    <span
-                      key={tr.id}
-                      title={`${tr.name}: ${tr.summary}`}
-                      className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-500/12 text-amber-200"
-                    >
-                      {tr.icon} {tr.name}
-                    </span>
-                  ))}
+              {(player.injuryWeeksRemaining ?? 0) > 0 && (
+                <div>
+                  <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300">
+                    Injured ({player.injuryWeeksRemaining}w)
+                  </span>
                 </div>
               )}
 
@@ -333,9 +292,6 @@ export function ManagerDeskView({
                     className={`font-medium px-2 py-0.5 rounded-full border ${tone.pill}`}
                   >
                     {cond.label} {cond.arrow}
-                  </span>
-                  <span className="tabular-nums text-slate-400">
-                    Stress {player.status.stress}%
                   </span>
                 </div>
                 <div className="flex items-center gap-2">

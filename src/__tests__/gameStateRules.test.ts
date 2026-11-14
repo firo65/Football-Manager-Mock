@@ -12,9 +12,11 @@ import {
   computeSquadZonePreview,
   getCampRolePreview,
   getFormationMatchupMultiplier,
+  getFormationTraitResonance,
   getPlayerRoleFit,
   getRoleTrainingMultiplier,
   getSquadEnergySummary,
+  PLAYER_TRAIT_CATALOG,
   resolvePenaltyShootout,
   rollWeeklyCampSpotlights,
   rollWeeklyCaptainEvent,
@@ -568,6 +570,153 @@ describe('State-Machine & Chronological Integrity Rules', () => {
       { mode: 'tap', excludeLineId: firstTap.lineId, rng: () => 0 }
     );
     expect(secondTap.lineId).not.toBe(firstTap.lineId);
+  });
+
+  it('applies Stance Energy & Risk trade-offs (Fresh Press, Tired Press penalty, Counter energy save, and split-half stamina drain)', () => {
+    const freshTeam = INITIAL_GAME_STATE.team.players.map((p) => ({
+      ...p,
+      status: { ...p.status, stamina: 82, stress: 20 },
+    }));
+    const tiredTeam = INITIAL_GAME_STATE.team.players.map((p) => ({
+      ...p,
+      status: { ...p.status, stamina: 50, stress: 20 },
+    }));
+
+    const freshAtkPreview = computeSquadZonePreview(
+      freshTeam,
+      '1-2-2',
+      'Attacking'
+    );
+    const tiredAtkPreview = computeSquadZonePreview(
+      tiredTeam,
+      '1-2-2',
+      'Attacking'
+    );
+    expect(freshAtkPreview.attack).toBeGreaterThan(tiredAtkPreview.attack);
+
+    const freshStart: GameState = {
+      ...INITIAL_GAME_STATE,
+      hasRunCampThisWeek: true,
+      team: { ...INITIAL_GAME_STATE.team, players: freshTeam },
+      agency: { ...INITIAL_GAME_STATE.team, players: freshTeam },
+    };
+
+    const fullAttack = gameReducer(
+      gameReducer(freshStart, {
+        type: 'SET_TACTICS',
+        payload: { tacticalStyle: 'Attacking' },
+      }),
+      { type: 'START_HALFTIME_MATCH' }
+    );
+    const afterFullAttack = gameReducer(fullAttack, {
+      type: 'FINISH_HALFTIME_MATCH',
+      payload: {
+        tactic: 'Attacking',
+        formation: '1-2-2',
+        captainRally: false,
+      },
+    });
+
+    const splitHalfStart = gameReducer(
+      gameReducer(freshStart, {
+        type: 'SET_TACTICS',
+        payload: { tacticalStyle: 'Attacking' },
+      }),
+      { type: 'START_HALFTIME_MATCH' }
+    );
+    const afterSplitHalf = gameReducer(splitHalfStart, {
+      type: 'FINISH_HALFTIME_MATCH',
+      payload: {
+        tactic: 'Counter',
+        formation: '1-2-2',
+        captainRally: false,
+      },
+    });
+
+    const fullCounter = gameReducer(
+      gameReducer(freshStart, {
+        type: 'SET_TACTICS',
+        payload: { tacticalStyle: 'Counter' },
+      }),
+      { type: 'START_HALFTIME_MATCH' }
+    );
+    const afterFullCounter = gameReducer(fullCounter, {
+      type: 'FINISH_HALFTIME_MATCH',
+      payload: {
+        tactic: 'Counter',
+        formation: '1-2-2',
+        captainRally: false,
+      },
+    });
+
+    const fullAtkAvgStam =
+      afterFullAttack.team.players.reduce((s, p) => s + p.status.stamina, 0) /
+      afterFullAttack.team.players.length;
+    const splitAvgStam =
+      afterSplitHalf.team.players.reduce((s, p) => s + p.status.stamina, 0) /
+      afterSplitHalf.team.players.length;
+    const fullCounterAvgStam =
+      afterFullCounter.team.players.reduce((s, p) => s + p.status.stamina, 0) /
+      afterFullCounter.team.players.length;
+
+    expect(fullCounterAvgStam).toBeGreaterThan(splitAvgStam);
+    expect(splitAvgStam).toBeGreaterThan(fullAtkAvgStam);
+  });
+
+  it('activates Formation × Trait Resonance bonuses when matching player traits are unlocked', () => {
+    const basePlayers = INITIAL_GAME_STATE.team.players.map((p) => ({
+      ...p,
+      traits: [],
+    }));
+    expect(getFormationTraitResonance(basePlayers, '1-1-1-2').active).toBe(false);
+
+    const withFinisher = basePlayers.map((p, idx) =>
+      idx === 0 ? { ...p, traits: [PLAYER_TRAIT_CATALOG.clinical_finisher] } : p
+    );
+    const pressResonance = getFormationTraitResonance(withFinisher, '1-1-1-2');
+    expect(pressResonance.active).toBe(true);
+    expect(pressResonance.bonusPct).toBe(5);
+    expect(getFormationTraitResonance(withFinisher, '1-2-2').active).toBe(false);
+
+    const basePressAtk = computeSquadZonePreview(
+      basePlayers,
+      '1-1-1-2',
+      'Balanced'
+    ).attack;
+    const resonatedPressAtk = computeSquadZonePreview(
+      withFinisher,
+      '1-1-1-2',
+      'Balanced'
+    ).attack;
+    const baseBoxAtk = computeSquadZonePreview(
+      basePlayers,
+      '1-2-2',
+      'Balanced'
+    ).attack;
+    const unresonatedBoxAtk = computeSquadZonePreview(
+      withFinisher,
+      '1-2-2',
+      'Balanced'
+    ).attack;
+    expect(resonatedPressAtk - basePressAtk).toBeGreaterThan(
+      unresonatedBoxAtk - baseBoxAtk
+    );
+
+    const withFortressTraits = basePlayers.map((p) =>
+      p.position === 'DEF'
+        ? { ...p, traits: [PLAYER_TRAIT_CATALOG.brick_wall] }
+        : p.position === 'GK'
+        ? { ...p, traits: [PLAYER_TRAIT_CATALOG.sweeper_keeper] }
+        : p
+    );
+    const fortressResonance = getFormationTraitResonance(
+      withFortressTraits,
+      '1-2-1-1'
+    );
+    expect(fortressResonance.active).toBe(true);
+    expect(fortressResonance.bonusPct).toBe(8);
+    expect(fortressResonance.defenseMult).toBe(1.08);
+    expect(fortressResonance.midfieldMult).toBe(1.03);
   });
 });
 

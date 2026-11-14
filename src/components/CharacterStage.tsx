@@ -5,8 +5,12 @@ import {
   pickCharacterLine,
   PickedCharacterDialogue,
 } from '../dialogueEngine';
-import { normalizePosition } from '../simulationEngine';
+import {
+  calculatePlayerPositionalRating,
+  normalizePosition,
+} from '../simulationEngine';
 import type { CharacterExpression, Player } from '../types';
+import { getStatLetterGrade, getUnifiedMoodPill } from './uiPrimitives';
 
 /**
  * Phase 3 art hook: When adding `.webp` / `.png` standing portraits under
@@ -65,32 +69,6 @@ const PLAYER_VISUAL_PALETTES: Record<string, CharacterPalette> = {
     hair: '#d4a359',
     skin: '#fae0cb',
     auraGlow: 'from-amber-500/25 via-yellow-500/10 to-slate-950',
-  },
-};
-
-const EXPRESSION_META: Record<
-  CharacterExpression,
-  { label: string; badgeClass: string }
-> = {
-  neutral: {
-    label: 'Composed',
-    badgeClass: 'bg-slate-800 text-slate-200 border-slate-600/80',
-  },
-  happy: {
-    label: 'In High Spirits',
-    badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50',
-  },
-  fired_up: {
-    label: 'Fired Up',
-    badgeClass: 'bg-amber-500/25 text-amber-200 border-amber-400/60',
-  },
-  tired: {
-    label: 'Fatigued',
-    badgeClass: 'bg-rose-500/20 text-rose-200 border-rose-400/50',
-  },
-  serious: {
-    label: 'Locked In',
-    badgeClass: 'bg-sky-500/20 text-sky-200 border-sky-400/50',
   },
 };
 
@@ -480,7 +458,9 @@ export function CharacterStage({
   const expression: CharacterExpression =
     currentDialogue?.expression ?? 'neutral';
   const palette = PLAYER_VISUAL_PALETTES[speaker.avatarKey];
-  const exprMeta = EXPRESSION_META[expression];
+  const speakerOvr = calculatePlayerPositionalRating(speaker);
+  const gradeInfo = getStatLetterGrade(speakerOvr);
+  const mood = getUnifiedMoodPill(speaker.status.stamina, speaker.status.stress);
   const hasImageArt = ENABLED_IMAGE_PORTRAIT_KEYS.has(speaker.avatarKey);
   const visibleText = fullText.slice(0, typedCount);
   const isTyping = typedCount < fullText.length;
@@ -502,14 +482,19 @@ export function CharacterStage({
 
       {/* Top Speaker Header & Starter Switcher */}
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 px-4 pt-3.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className="px-2 py-0.5 rounded-md bg-slate-950/85 border border-slate-700 text-[10px] font-mono font-extrabold text-amber-300">
             #{speaker.shirtNumber ?? '?'} {normalizePosition(speaker.position)}
           </span>
           <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${exprMeta.badgeClass}`}
+            className={`px-2 py-0.5 rounded-md text-[10px] border ${gradeInfo.badgeClass}`}
           >
-            {exprMeta.label}
+            Rank {gradeInfo.grade}
+          </span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${mood.pillClass}`}
+          >
+            {mood.icon} {mood.label}
           </span>
         </div>
 
@@ -609,9 +594,18 @@ export function CharacterStage({
               );
             })}
           </div>
-          <span className="text-[10px] font-mono text-slate-400">
-            Stamina {speaker.status.stamina}% • {speaker.currentMood}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-bold text-amber-300">⚡</span>
+            <div className="w-16 h-2 rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${mood.barClass}`}
+                style={{ width: `${speaker.status.stamina}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono font-bold tabular-nums text-slate-300">
+              {speaker.status.stamina}%
+            </span>
+          </div>
         </div>
       </div>
     </div>

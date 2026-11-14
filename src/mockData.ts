@@ -98,7 +98,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Standard hardwood indoor court for core shooting, sprint, and defensive drills.',
     cost: 0,
     weeklyUpkeep: 150,
-    perkSummary: 'Base training court (Unlocked at start)',
+    perkSummary: 'Starting indoor court',
   },
   {
     id: 'tactical_analysis_suite',
@@ -106,7 +106,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'High-speed overhead cameras and smart boards for passing triangles and pressing triggers.',
     cost: 4200,
     weeklyUpkeep: 180,
-    perkSummary: '+15% Passing/Vision camp gains & +3% Match Tactical Synergy',
+    perkSummary: '+15% Pass/Vision Gains • +3% Synergy',
   },
   {
     id: 'strength_gym',
@@ -114,7 +114,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Explosive power racks and futsal conditioning sleds.',
     cost: 5200,
     weeklyUpkeep: 200,
-    perkSummary: '+15% Physical/Defense camp gains & -15% Match Stamina Drain',
+    perkSummary: '+15% Phys/Def Gains • -15% Match Fatigue',
   },
   {
     id: 'medical_rehab_center',
@@ -122,8 +122,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Ice baths, physio tables, and load monitoring sensors to prevent training injuries.',
     cost: 5800,
     weeklyUpkeep: 200,
-    perkSummary:
-      '-25% Camp Failure Risk, +8 Recovery Week Stamina & -3 Camp Drain',
+    perkSummary: '-25% Slump Risk • +8 Rest NRG • -3 Drain',
   },
   {
     id: 'youth_academy',
@@ -131,7 +130,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Local tournament scouts and grassroots clinics that grow club reputation, fanbase, and weekly sponsor stipends.',
     cost: 6200,
     weeklyUpkeep: 220,
-    perkSummary: '+25% Supporter growth & +15% Gate Revenue per match',
+    perkSummary: '+25% Fan Growth • +15% Gate Cash',
   },
   {
     id: 'training_pitch_2',
@@ -139,7 +138,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Secondary pressurized court allowing simultaneous full-intensity 5v5 scrimmages.',
     cost: 6800,
     weeklyUpkeep: 250,
-    perkSummary: '+10% All Stat Gains on Scrimmage & Attacking camps',
+    perkSummary: '+10% Scrimmage & Attack Gains',
   },
   {
     id: 'sports_science_lab',
@@ -147,7 +146,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Biomechanical sensors and recovery chambers that accelerate training adaptation and matchday output.',
     cost: 9500,
     weeklyUpkeep: 340,
-    perkSummary: '+10% All Camp Gains & +4% All Match Zones',
+    perkSummary: '+10% All Camp Gains • +4% All Zones',
   },
   {
     id: 'championship_war_room',
@@ -155,7 +154,7 @@ export const FACILITY_CATALOG: FacilityDefinition[] = [
     description: 'Elite championship bunker for set-piece scripting and defensive pressing traps.',
     cost: 11500,
     weeklyUpkeep: 420,
-    perkSummary: '+5% Attack & Defense across all matches',
+    perkSummary: '+5% Match Attack & Defense',
   },
 ];
 
@@ -165,21 +164,21 @@ export const MATCH_PREP_OPTIONS: MatchPrepDefinition[] = [
     title: 'Opponent Video Brief',
     cost: 2400,
     emoji: '📹',
-    summary: '+5% All Match Zones for this Sunday tie',
+    summary: '+5% All Match Zones',
   },
   {
     id: 'cryo_gel',
     title: 'Matchday Cryo-Gel & Physio',
     cost: 2800,
     emoji: '❄️',
-    summary: '-55% Match Stamina & Stress drain (+4 Post-Match Stamina)',
+    summary: '-55% Fatigue • +4 Post-Match NRG',
   },
   {
     id: 'media_hype',
     title: 'Prime-Time Media Blitz',
     cost: 3200,
     emoji: '📣',
-    summary: '+35% Gate Cash & Fan Growth + +3 Captain Aura immediately',
+    summary: '+35% Cash & Fans • +3 Cap Aura',
   },
 ];
 

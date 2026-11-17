@@ -14,6 +14,7 @@ import {
   getFormationMatchupMultiplier,
   getFormationTraitResonance,
   getPlayerRoleFit,
+  getRecommendedWeeklyCamp,
   getRoleTrainingMultiplier,
   getSquadEnergySummary,
   PLAYER_TRAIT_CATALOG,
@@ -717,6 +718,45 @@ describe('State-Machine & Chronological Integrity Rules', () => {
     expect(fortressResonance.bonusPct).toBe(8);
     expect(fortressResonance.defenseMult).toBe(1.08);
     expect(fortressResonance.midfieldMult).toBe(1.03);
+  });
+
+  it('recommends recovery when squad energy is low and targets opponent zone gaps when fresh', () => {
+    const freshPlayers = INITIAL_GAME_STATE.team.players.map((p) => ({
+      ...p,
+      status: { ...p.status, stamina: 88, stress: 10 },
+      isBurnedOut: false,
+    }));
+    const tiredPlayers = freshPlayers.map((p) => ({
+      ...p,
+      status: { ...p.status, stamina: 45, stress: 40 },
+    }));
+
+    expect(
+      getRecommendedWeeklyCamp({
+        players: tiredPlayers,
+        ourZones: { attack: 35, midfield: 35, defense: 35, pace: 35 },
+        opponentZones: { attack: 45, midfield: 35, defense: 35, pace: 35 },
+        funds: 5000,
+      }).campId
+    ).toBe('camp_recovery');
+
+    expect(
+      getRecommendedWeeklyCamp({
+        players: freshPlayers,
+        ourZones: { attack: 30, midfield: 35, defense: 30, pace: 35 },
+        opponentZones: { attack: 32, midfield: 34, defense: 48, pace: 34 },
+        funds: 5000,
+      }).campId
+    ).toBe('camp_attack');
+
+    expect(
+      getRecommendedWeeklyCamp({
+        players: freshPlayers,
+        ourZones: { attack: 40, midfield: 36, defense: 26, pace: 36 },
+        opponentZones: { attack: 46, midfield: 35, defense: 35, pace: 35 },
+        funds: 5000,
+      }).campId
+    ).toBe('camp_defense');
   });
 });
 

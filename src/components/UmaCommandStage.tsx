@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FastForward,
   Flame,
@@ -16,6 +16,7 @@ import {
   getFormationMatchupMultiplier,
   getFormationProfile,
   getFormationTraitResonance,
+  getRecommendedWeeklyCamp,
   getSquadEnergySummary,
   getTacticalMatchupMultiplier,
   getTacticalStanceEnergyProfile,
@@ -100,6 +101,17 @@ function getFormationMatchupBadge(
     return { suffix: `▼ -${pct}%`, tone: 'dis', edgeLabel: res.edgeLabel };
   }
   return { suffix: '●', tone: 'even', edgeLabel: res.edgeLabel };
+}
+
+type PillarKey = 'atk' | 'def' | 'tec' | 'cap';
+
+const GRADE_ORDER = ['E', 'D', 'C', 'B', 'A', 'S', 'SS'] as const;
+
+interface PillarFeedback {
+  delta: number;
+  gradeUpFrom?: string;
+  gradeUpTo?: string;
+  animKey: number;
 }
 
 const MATCHUP_PILL_CLASS: Record<MatchupTone, string> = {
@@ -423,6 +435,13 @@ export function UmaCommandStage({
   onAdvanceWeek: () => void;
 }) {
   const [hoveredCampId, setHoveredCampId] = useState<SquadCampId | null>(null);
+  const [pillarFeedback, setPillarFeedback] = useState<
+    Partial<Record<PillarKey, PillarFeedback>>
+  >({});
+  const prevPillarsRef = useRef<Record<
+    PillarKey,
+    { value: number; grade: string }
+  > | null>(null);
 
   const isTrainingPhase =
     !isCampaignOver &&
@@ -489,7 +508,7 @@ export function UmaCommandStage({
     : { atk: '', def: '', tec: '', cap: '' };
 
   const statPillars: {
-    key: 'atk' | 'def' | 'tec' | 'cap';
+    key: PillarKey;
     icon: string;
     label: string;
     value: number;
@@ -504,6 +523,77 @@ export function UmaCommandStage({
     },
     { key: 'cap', icon: '👑', label: 'Captaincy', value: captaincyAvg },
   ];
+
+  const atkVal = statPillars[0]!.value;
+  const defVal = statPillars[1]!.value;
+  const tecVal = statPillars[2]!.value;
+  const capVal = statPillars[3]!.value;
+
+  useEffect(() => {
+    const nextSnapshot: Record<PillarKey, { value: number; grade: string }> = {
+      atk: { value: atkVal, grade: getStatLetterGrade(atkVal).grade },
+      def: { value: defVal, grade: getStatLetterGrade(defVal).grade },
+      tec: { value: tecVal, grade: getStatLetterGrade(tecVal).grade },
+      cap: { value: capVal, grade: getStatLetterGrade(capVal).grade },
+    };
+
+    const prev = prevPillarsRef.current;
+    prevPillarsRef.current = nextSnapshot;
+    if (!prev) return;
+
+    const now = Date.now();
+    const updates: Partial<Record<PillarKey, PillarFeedback>> = {};
+    let hasUpdate = false;
+
+    (['atk', 'def', 'tec', 'cap'] as PillarKey[]).forEach((key) => {
+      const delta =
+        Math.round((nextSnapshot[key].value - prev[key].value) * 10) / 10;
+      const prevIdx = GRADE_ORDER.indexOf(
+        prev[key].grade as (typeof GRADE_ORDER)[number]
+      );
+      const nextIdx = GRADE_ORDER.indexOf(
+        nextSnapshot[key].grade as (typeof GRADE_ORDER)[number]
+      );
+      const gradedUp = nextIdx > prevIdx;
+
+      if (delta > 0 || gradedUp) {
+        hasUpdate = true;
+        updates[key] = {
+          delta: Math.max(0, delta),
+          gradeUpFrom: gradedUp ? prev[key].grade : undefined,
+          gradeUpTo: gradedUp ? nextSnapshot[key].grade : undefined,
+          animKey: now,
+        };
+      }
+    });
+
+    if (!hasUpdate) return;
+    setPillarFeedback((curr) => ({ ...curr, ...updates }));
+
+    const timer = window.setTimeout(() => {
+      setPillarFeedback((curr) => {
+        const next = { ...curr };
+        (Object.keys(updates) as PillarKey[]).forEach((k) => {
+          if (next[k]?.animKey === now) {
+            delete next[k];
+          }
+        });
+        return next;
+      });
+    }, 2300);
+
+    return () => window.clearTimeout(timer);
+  }, [atkVal, defVal, tecVal, capVal]);
+
+  const coachRecommendation = isTrainingPhase
+    ? getRecommendedWeeklyCamp({
+        players: team.players,
+        ourZones: zonePreview,
+        opponentZones: currentScheduledFixture.zoneRatings,
+        weeklySpotlights,
+        funds: team.funds,
+      })
+    : null;
 
   const zoneComparisons = [
     {
@@ -617,17 +707,36 @@ export function UmaCommandStage({
         {statPillars.map((pillar) => {
           const gradeInfo = getStatLetterGrade(pillar.value);
           const chevron = chevrons[pillar.key];
+          const feedback = pillarFeedback[pillar.key];
           return (
             <div
               key={pillar.key}
-              className={`relative rounded-2xl border px-3.5 py-2.5 flex items-center justify-between gap-2 transition ${
-                chevron
+              className={`relative overflow-visible rounded-2xl border px-3.5 py-2.5 flex items-center justify-between gap-2 transition ${
+                feedback?.gradeUpTo
+                  ? 'bg-amber-950/35 border-amber-400/75 shadow-lg shadow-amber-500/15'
+                  : chevron
                   ? previewSpotlight
                     ? 'bg-amber-950/25 border-amber-400/60 shadow-lg shadow-amber-500/10'
                     : 'bg-emerald-950/20 border-emerald-500/45'
                   : 'bg-slate-900/75 border-slate-800/80'
               }`}
             >
+              {feedback?.gradeUpTo ? (
+                <span
+                  key={`grade-${feedback.animKey}`}
+                  className="pointer-events-none absolute -top-3 right-2 z-20 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-300 via-yellow-200 to-pink-300 text-slate-950 text-[10px] font-black shadow-lg animate-grade-fanfare"
+                >
+                  ✨ {feedback.gradeUpFrom} ➔ {feedback.gradeUpTo}!
+                </span>
+              ) : feedback && feedback.delta > 0 ? (
+                <span
+                  key={`delta-${feedback.animKey}`}
+                  className="pointer-events-none absolute -top-2.5 right-2 z-20 px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black shadow animate-stat-delta-float"
+                >
+                  +{Number(feedback.delta.toFixed(1))} ▲
+                </span>
+              ) : null}
+
               <div className="min-w-0">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                   <span>{pillar.icon}</span>
@@ -659,7 +768,81 @@ export function UmaCommandStage({
         })}
       </div>
 
-      {/* MIDDLE STAGE: Standing Character + Dynamic Phase Arena */}
+      {/* TOP INFO BAR: Sunday Opponent Intel & Zone Matchups */}
+      {(isTrainingPhase || isMatchdayPhase) && (
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800/80 px-4 py-3 space-y-2 shadow-lg">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-3 min-w-0 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs shrink-0 ${ourGrade.badgeClass}`}
+                >
+                  {ourGrade.grade}
+                </span>
+                <span className="text-xs font-extrabold text-white tabular-nums">
+                  {prediction.teamEffectiveRating}
+                </span>
+              </div>
+              <span className="text-[11px] font-black text-amber-400">VS</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs shrink-0 ${oppGrade.badgeClass}`}
+                >
+                  {oppGrade.grade}
+                </span>
+                <div className="min-w-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 block leading-tight">
+                    Sunday • {currentScheduledFixture.stage}
+                  </span>
+                  <p className="text-sm font-bold text-white truncate leading-tight">
+                    {currentScheduledFixture.opponentName}{' '}
+                    <span className="text-xs font-semibold text-slate-400 tabular-nums">
+                      (~{estOppRating})
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-xs font-extrabold tabular-nums text-emerald-300">
+                {starText} {prediction.winPct}%
+              </span>
+              <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-700 text-amber-300 font-semibold">
+                {STANCE_EMOJI[currentScheduledFixture.favoredTactic]}{' '}
+                {currentScheduledFixture.favoredTactic} •{' '}
+                {currentScheduledFixture.opponentFormation}
+              </span>
+              {isFullCounterArmed ? (
+                <span className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold">
+                  ✓ Counter Armed
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onSetTactics({
+                      tacticalStyle: recTactic,
+                      formation: recFormation ?? team.formation,
+                    })
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-extrabold text-xs cursor-pointer transition"
+                >
+                  ⚡ Counter ({recTactic})
+                </button>
+              )}
+            </div>
+          </div>
+
+          <OpponentZoneIntelStrip
+            zoneComparisons={zoneComparisons}
+            bossPerk={bossPerk}
+            isBossTrapTriggered={isBossTrapTriggered}
+          />
+        </div>
+      )}
+
+      {/* MIDDLE STAGE: Tall Vertical Hero Player Window (Left) + Options Panel (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         <div className="lg:col-span-5 flex flex-col">
           <CharacterStage
@@ -679,227 +862,225 @@ export function UmaCommandStage({
         </div>
 
         <div className="lg:col-span-7 flex flex-col">
-          {/* PHASE A: MON–FRI TRAINING STAGE */}
+          {/* PHASE A: MON–FRI TRAINING STAGE (Options + Preview on Right) */}
           {isTrainingPhase && (
-            <div className="flex-1 rounded-2xl bg-slate-900/80 border border-slate-800/80 p-5 flex flex-col justify-between space-y-4 shadow-xl">
-              {/* Sunday Opponent Preview (Always Visible Intel) */}
-              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className={`w-9 h-9 rounded-xl border flex items-center justify-center text-sm shrink-0 ${oppGrade.badgeClass}`}
-                    >
-                      {oppGrade.grade}
-                    </span>
-                    <div className="min-w-0">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 block">
-                        Sunday Match • {currentScheduledFixture.stage}
-                      </span>
-                      <p className="text-sm font-bold text-white truncate">
-                        vs {currentScheduledFixture.opponentName}{' '}
-                        <span className="text-xs font-semibold text-slate-400 tabular-nums">
-                          (~{estOppRating})
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-semibold">
-                      {STANCE_EMOJI[currentScheduledFixture.favoredTactic]}{' '}
-                      {currentScheduledFixture.favoredTactic} •{' '}
-                      {currentScheduledFixture.opponentFormation}
-                    </span>
-                    {isFullCounterArmed ? (
-                      <span className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold">
-                        ✓ Counter Armed
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onSetTactics({
-                            tacticalStyle: recTactic,
-                            formation: recFormation ?? team.formation,
-                          })
-                        }
-                        className="px-2.5 py-1 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-extrabold text-xs cursor-pointer transition"
-                      >
-                        ⚡ Counter ({recTactic})
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <OpponentZoneIntelStrip
-                  zoneComparisons={zoneComparisons}
-                  bossPerk={bossPerk}
-                  isBossTrapTriggered={isBossTrapTriggered}
-                />
-              </div>
-
-              {/* Selected Camp Preview Card */}
+            <div className="flex-1 rounded-2xl bg-slate-900/80 border border-slate-800/80 p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-xl">
+              {/* Selected Camp Header & Energy Preview */}
               <div
-                className={`flex-1 rounded-2xl border p-4 flex flex-col justify-between space-y-4 ${
+                className={`rounded-2xl border p-3.5 space-y-2.5 ${
                   selectedSpotlight
                     ? 'bg-gradient-to-br from-amber-950/35 via-slate-950/70 to-pink-950/20 border-amber-400/60 shadow-lg shadow-amber-500/10'
                     : 'bg-slate-950/60 border-slate-800/80'
                 }`}
               >
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">{activeCamp.emoji}</span>
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
-                          Mon–Fri Training Selection
-                        </span>
-                        <h3 className="text-lg font-extrabold text-white">
-                          {activeCamp.title}
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`text-xs tabular-nums font-bold px-2.5 py-1 rounded-full ${
-                          selectedFailPct === 0
-                            ? 'bg-emerald-500/15 text-emerald-300'
-                            : selectedFailPct >= 30
-                            ? 'bg-rose-500/20 text-rose-300'
-                            : selectedFailPct >= 15
-                            ? 'bg-amber-500/20 text-amber-300'
-                            : 'bg-slate-800 text-slate-300'
-                        }`}
-                      >
-                        Fail {selectedFailPct}%
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-2xl">{activeCamp.emoji}</span>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+                        Mon–Fri Training Selection
                       </span>
-                      <span className="text-xs tabular-nums font-bold px-2.5 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-200">
-                        ¥{activeCamp.monetaryCost.toLocaleString()}
-                      </span>
+                      <h3 className="text-base font-extrabold text-white leading-tight">
+                        {activeCamp.title}
+                      </h3>
                     </div>
                   </div>
 
-                  {selectedSpotlight && (
-                    <div className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 via-pink-500/15 to-cyan-500/15 border border-amber-400/45 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="font-extrabold text-amber-200 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                        {selectedSpotlight.badge} BONUS!
-                      </span>
-                      <span className="font-semibold text-emerald-200">
-                        {selectedSpotlight.effectSummary}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Projected Energy Preview Bar */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-400">
-                        Projected Post-Camp Energy
-                      </span>
-                      <span className="font-bold tabular-nums text-white flex items-center gap-1.5">
-                        <span>
-                          {squadEnergy.avgStamina}% → {projectedEnergy}%
-                        </span>
-                        <span
-                          className={`px-2 py-0.2 rounded-full text-[10px] border ${projectedMood.pillClass}`}
-                        >
-                          {projectedMood.icon} {projectedMood.label}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="h-2.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${projectedMood.barClass}`}
-                        style={{ width: `${projectedEnergy}%` }}
-                      />
-                    </div>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`text-xs tabular-nums font-bold px-2.5 py-0.5 rounded-full ${
+                        selectedFailPct === 0
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : selectedFailPct >= 30
+                          ? 'bg-rose-500/20 text-rose-300'
+                          : selectedFailPct >= 15
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      Fail {selectedFailPct}%
+                    </span>
+                    <span className="text-xs tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-200">
+                      ¥{activeCamp.monetaryCost.toLocaleString()}
+                    </span>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={onRunWeeklyCamp}
-                  className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm tracking-wide flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition"
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  START TRAINING ({SHORT_CAMP_TITLES[activeCamp.id].toUpperCase()})
-                </button>
+                {selectedSpotlight && (
+                  <div className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-pink-500/15 to-cyan-500/15 border border-amber-400/45 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-extrabold text-amber-200 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      {selectedSpotlight.badge} BONUS!
+                    </span>
+                    <span className="font-semibold text-emerald-200">
+                      {selectedSpotlight.effectSummary}
+                    </span>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-400">
+                      Projected Post-Camp Energy
+                    </span>
+                    <span className="font-bold tabular-nums text-white flex items-center gap-1.5">
+                      <span>
+                        {squadEnergy.avgStamina}% → {projectedEnergy}%
+                      </span>
+                      <span
+                        className={`px-2 py-0.2 rounded-full text-[10px] border ${projectedMood.pillClass}`}
+                      >
+                        {projectedMood.icon} {projectedMood.label}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${projectedMood.barClass}`}
+                      style={{ width: `${projectedEnergy}%` }}
+                    />
+                  </div>
+                </div>
               </div>
+
+              {/* 5 Uma Musume Training / Rest Option Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                {SQUAD_CAMP_OPTIONS.map((camp) => {
+                  const isSelected = selectedCampId === camp.id;
+                  const spotlight = weeklySpotlights.find(
+                    (s) => s.campId === camp.id
+                  );
+                  const failPct = Math.round(
+                    calculateCampFailureChance(
+                      team.players,
+                      camp,
+                      team.unlockedFacilities,
+                      spotlight
+                    ) * 100
+                  );
+                  const isRecovery = camp.id === 'camp_recovery';
+                  const energyGainDisplay = isRecovery
+                    ? Math.abs(camp.energyCost) +
+                      (hasRehab ? 8 : 0) +
+                      (spotlight?.kind === 'miracle_spa' ? 9 : 0)
+                    : 0;
+                  const shortName = SHORT_CAMP_TITLES[camp.id];
+                  const campChevs = getCampStatChevrons(
+                    camp.id,
+                    Boolean(spotlight)
+                  );
+                  const isCoachPick = coachRecommendation?.campId === camp.id;
+
+                  return (
+                    <button
+                      key={camp.id}
+                      type="button"
+                      title={
+                        isCoachPick && coachRecommendation
+                          ? `📣 Coach Pick (${coachRecommendation.reason}) — ${camp.description}`
+                          : camp.description
+                      }
+                      onMouseEnter={() => setHoveredCampId(camp.id)}
+                      onMouseLeave={() => setHoveredCampId(null)}
+                      onClick={() => {
+                        if (isSelected) {
+                          onRunWeeklyCamp();
+                        } else {
+                          onSelectCamp(camp.id);
+                        }
+                      }}
+                      className={`relative rounded-2xl border p-3 text-center flex flex-col items-center justify-between gap-1.5 transition cursor-pointer ${
+                        isRecovery ? 'col-span-2 sm:col-span-2' : ''
+                      } ${
+                        spotlight
+                          ? isSelected
+                            ? 'bg-gradient-to-b from-amber-500/30 via-pink-500/15 to-slate-900 border-amber-300 ring-2 ring-amber-300/70 shadow-xl shadow-amber-500/20'
+                            : 'bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-amber-400/70 hover:border-amber-300 shadow-lg shadow-amber-500/10'
+                          : isSelected
+                          ? 'bg-emerald-950/35 border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/15'
+                          : isCoachPick
+                          ? 'bg-sky-950/25 border-sky-400/70 hover:border-sky-300 shadow-md shadow-sky-500/10'
+                          : 'bg-slate-900/80 border-slate-800 hover:border-slate-600'
+                      }`}
+                    >
+                      {isCoachPick && (
+                        <span className="absolute -top-2.5 left-2 px-2 py-0.5 rounded-full bg-sky-400 text-slate-950 text-[10px] font-black shadow">
+                          📣 Coach Pick
+                        </span>
+                      )}
+
+                      {spotlight && (
+                        <span className="absolute -top-2.5 right-2 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-300 via-pink-300 to-cyan-300 text-slate-950 text-[10px] font-black shadow">
+                          {spotlight.badge.split(' ')[0]} BONUS!
+                        </span>
+                      )}
+
+                      <div className="w-full flex items-center justify-between text-[11px] font-bold tabular-nums">
+                        {isRecovery ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
+                            +{energyGainDisplay}⚡
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-2 py-0.5 rounded-full ${
+                              failPct >= 30
+                                ? 'bg-rose-500/20 text-rose-300'
+                                : failPct >= 15
+                                ? 'bg-amber-500/20 text-amber-300'
+                                : 'bg-emerald-500/15 text-emerald-300'
+                            }`}
+                          >
+                            Fail {failPct}%
+                          </span>
+                        )}
+                        <span className="text-slate-400">
+                          ¥{camp.monetaryCost.toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="text-2xl leading-none py-0.5">
+                        {camp.emoji}
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-extrabold text-white flex items-center justify-center gap-1">
+                          {isRecovery ? (
+                            <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : null}
+                          <span>{shortName}</span>
+                        </div>
+                        <div className="text-[10px] font-bold text-emerald-300/90 h-3.5">
+                          {isRecovery
+                            ? 'Full Refresh (+Energy, -Stress)'
+                            : [
+                                campChevs.atk && `ATK ${campChevs.atk}`,
+                                campChevs.def && `DEF ${campChevs.def}`,
+                                campChevs.tec && `TEC ${campChevs.tec}`,
+                              ]
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .join(' • ')}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={onRunWeeklyCamp}
+                className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm tracking-wide flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                START TRAINING ({SHORT_CAMP_TITLES[activeCamp.id].toUpperCase()})
+              </button>
             </div>
           )}
 
-          {/* PHASE B: SUNDAY MATCHDAY ARENA */}
+          {/* PHASE B: SUNDAY MATCHDAY ARENA (Options on Right) */}
           {isMatchdayPhase && (
             <div className="flex-1 rounded-2xl bg-slate-900/85 border border-indigo-500/45 p-5 flex flex-col justify-between space-y-4 shadow-xl">
-              {/* VS Face-Off Header + Zone Intel */}
-              <div className="p-3.5 rounded-xl bg-slate-950/75 border border-slate-800 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`w-8 h-8 rounded-lg border flex items-center justify-center text-sm ${ourGrade.badgeClass}`}
-                      >
-                        {ourGrade.grade}
-                      </span>
-                      <span className="text-sm font-extrabold text-white tabular-nums">
-                        {prediction.teamEffectiveRating}
-                      </span>
-                    </div>
-                    <span className="text-xs font-black text-amber-400 px-1">
-                      ⚡ VS ⚡
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`w-8 h-8 rounded-lg border flex items-center justify-center text-sm ${oppGrade.badgeClass}`}
-                      >
-                        {oppGrade.grade}
-                      </span>
-                      <div className="min-w-0">
-                        <span className="text-sm font-bold text-slate-200 truncate block max-w-[170px]">
-                          {currentScheduledFixture.opponentName}
-                        </span>
-                        <span className="text-[10px] font-bold text-amber-300 block">
-                          {STANCE_EMOJI[currentScheduledFixture.favoredTactic]}{' '}
-                          {currentScheduledFixture.favoredTactic} •{' '}
-                          {currentScheduledFixture.opponentFormation}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-xs font-extrabold tabular-nums text-emerald-300">
-                      {starText} {prediction.winPct}%
-                    </span>
-                    {!isFullCounterArmed ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onSetTactics({
-                            tacticalStyle: recTactic,
-                            formation: recFormation ?? team.formation,
-                          })
-                        }
-                        className="px-2.5 py-1 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-extrabold text-xs cursor-pointer transition"
-                      >
-                        ⚡ Auto-Counter
-                      </button>
-                    ) : (
-                      <span className="text-[11px] font-bold text-emerald-300 px-2 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30">
-                        ✓ Countered
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <OpponentZoneIntelStrip
-                  zoneComparisons={zoneComparisons}
-                  bossPerk={bossPerk}
-                  isBossTrapTriggered={isBossTrapTriggered}
-                />
-              </div>
 
               {/* 3 Big Visual Stance Cards */}
               <div className="space-y-1.5">
@@ -1131,110 +1312,6 @@ export function UmaCommandStage({
           )}
         </div>
       </div>
-
-      {/* BOTTOM DOCK: 5 Chunky Uma Musume Training / Rest Buttons */}
-      {isTrainingPhase && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {SQUAD_CAMP_OPTIONS.map((camp) => {
-            const isSelected = selectedCampId === camp.id;
-            const spotlight = weeklySpotlights.find(
-              (s) => s.campId === camp.id
-            );
-            const failPct = Math.round(
-              calculateCampFailureChance(
-                team.players,
-                camp,
-                team.unlockedFacilities,
-                spotlight
-              ) * 100
-            );
-            const isRecovery = camp.id === 'camp_recovery';
-            const energyGainDisplay = isRecovery
-              ? Math.abs(camp.energyCost) +
-                (hasRehab ? 8 : 0) +
-                (spotlight?.kind === 'miracle_spa' ? 9 : 0)
-              : 0;
-            const shortName = SHORT_CAMP_TITLES[camp.id];
-            const campChevs = getCampStatChevrons(camp.id, Boolean(spotlight));
-
-            return (
-              <button
-                key={camp.id}
-                type="button"
-                title={camp.description}
-                onMouseEnter={() => setHoveredCampId(camp.id)}
-                onMouseLeave={() => setHoveredCampId(null)}
-                onClick={() => {
-                  if (isSelected) {
-                    onRunWeeklyCamp();
-                  } else {
-                    onSelectCamp(camp.id);
-                  }
-                }}
-                className={`relative rounded-2xl border p-3.5 text-center flex flex-col items-center justify-between gap-2 transition cursor-pointer ${
-                  spotlight
-                    ? isSelected
-                      ? 'bg-gradient-to-b from-amber-500/30 via-pink-500/15 to-slate-900 border-amber-300 ring-2 ring-amber-300/70 shadow-xl shadow-amber-500/20'
-                      : 'bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-amber-400/70 hover:border-amber-300 shadow-lg shadow-amber-500/10'
-                    : isSelected
-                    ? 'bg-emerald-950/35 border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/15'
-                    : 'bg-slate-900/80 border-slate-800 hover:border-slate-600'
-                }`}
-              >
-                {spotlight && (
-                  <span className="absolute -top-2.5 right-2 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-300 via-pink-300 to-cyan-300 text-slate-950 text-[10px] font-black shadow">
-                    {spotlight.badge.split(' ')[0]} BONUS!
-                  </span>
-                )}
-
-                <div className="w-full flex items-center justify-between text-[11px] font-bold tabular-nums">
-                  {isRecovery ? (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
-                      +{energyGainDisplay}⚡
-                    </span>
-                  ) : (
-                    <span
-                      className={`px-2 py-0.5 rounded-full ${
-                        failPct >= 30
-                          ? 'bg-rose-500/20 text-rose-300'
-                          : failPct >= 15
-                          ? 'bg-amber-500/20 text-amber-300'
-                          : 'bg-emerald-500/15 text-emerald-300'
-                      }`}
-                    >
-                      Fail {failPct}%
-                    </span>
-                  )}
-                  <span className="text-slate-400">
-                    ¥{camp.monetaryCost.toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="text-3xl leading-none py-1">{camp.emoji}</div>
-
-                <div className="space-y-0.5">
-                  <div className="text-sm font-extrabold text-white flex items-center justify-center gap-1">
-                    {isRecovery ? <Zap className="w-3.5 h-3.5 text-emerald-400" /> : null}
-                    <span>{shortName}</span>
-                  </div>
-                  <div className="text-[10px] font-bold text-emerald-300/90 h-3.5">
-                    {isRecovery
-                      ? 'Full Refresh'
-                      : [
-                          campChevs.atk && `ATK ${campChevs.atk}`,
-                          campChevs.def && `DEF ${campChevs.def}`,
-                          campChevs.tec && `TEC ${campChevs.tec}`,
-                        ]
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .join(' • ')}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

@@ -5537,6 +5537,122 @@ export function evaluateCampaignRun(input: {
   };
 }
 
+export interface WeeklyCoachRecommendation {
+  campId: SquadCampId;
+  reason: string;
+}
+
+/**
+ * Assistant Coach ("Tazuna-style") 1-pick recommendation for the Mon-Fri camp phase.
+ * Prioritizes recovery when squad energy/slump risk is dangerous, otherwise targets
+ * the upcoming Sunday opponent's matchup gap or a high-value weekly spotlight.
+ */
+export function getRecommendedWeeklyCamp(params: {
+  players: Player[];
+  ourZones: OpponentZoneRatings;
+  opponentZones?: OpponentZoneRatings;
+  weeklySpotlights?: WeeklyCampSpotlight[];
+  funds?: number;
+}): WeeklyCoachRecommendation {
+  const {
+    players,
+    ourZones,
+    opponentZones,
+    weeklySpotlights = [],
+    funds,
+  } = params;
+
+  const energy = getSquadEnergySummary(players);
+  const burnedOutCount = players.filter((p) => p.isBurnedOut).length;
+  if (
+    energy.avgStamina < 55 ||
+    energy.minStamina < 38 ||
+    burnedOutCount > 0
+  ) {
+    return {
+      campId: 'camp_recovery',
+      reason: 'Low Energy / Slump Risk',
+    };
+  }
+
+  if (funds !== undefined && funds < 1100) {
+    return {
+      campId: 'camp_recovery',
+      reason: 'Save Funds & Refresh',
+    };
+  }
+
+  const recoverySpotlight = weeklySpotlights.find(
+    (s) => s.campId === 'camp_recovery'
+  );
+  if (recoverySpotlight && energy.avgStamina < 72) {
+    return {
+      campId: 'camp_recovery',
+      reason: 'Spotlight Recovery Boost',
+    };
+  }
+
+  if (!opponentZones) {
+    return {
+      campId: 'camp_scrimmage',
+      reason: 'Balanced Squad Growth',
+    };
+  }
+
+  const candidates: { campId: SquadCampId; gap: number; reason: string; cost: number }[] = [
+    {
+      campId: 'camp_attack',
+      gap: opponentZones.defense - ourZones.attack,
+      reason: 'Break Opp Defense',
+      cost: 1200,
+    },
+    {
+      campId: 'camp_defense',
+      gap: opponentZones.attack - ourZones.defense,
+      reason: 'Contain Opp Attack',
+      cost: 1200,
+    },
+    {
+      campId: 'camp_possession_gk',
+      gap:
+        (opponentZones.midfield + opponentZones.pace) / 2 -
+        (ourZones.midfield + ourZones.pace) / 2,
+      reason: 'Midfield & GK Edge',
+      cost: 1100,
+    },
+  ];
+
+  const affordable = candidates.filter(
+    (c) => funds === undefined || funds >= c.cost
+  );
+  const pool = affordable.length > 0 ? affordable : candidates;
+  const bestGapChoice = [...pool].sort((a, b) => b.gap - a.gap)[0]!;
+
+  const activeSpotlight = weeklySpotlights.find(
+    (s) =>
+      s.campId !== 'camp_recovery' &&
+      (funds === undefined || funds >= (s.campId === 'camp_scrimmage' ? 1500 : 1200))
+  );
+
+  if (activeSpotlight) {
+    const spotlightMatch = pool.find((c) => c.campId === activeSpotlight.campId);
+    if (
+      bestGapChoice.gap <= -4 ||
+      (spotlightMatch && bestGapChoice.gap - spotlightMatch.gap <= 3)
+    ) {
+      return {
+        campId: activeSpotlight.campId,
+        reason: 'High-Value Spotlight',
+      };
+    }
+  }
+
+  return {
+    campId: bestGapChoice.campId,
+    reason: bestGapChoice.reason,
+  };
+}
+
 export type {
   CaptainMilestone,
   DrillDefinition,

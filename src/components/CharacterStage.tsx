@@ -469,7 +469,7 @@ export function CharacterStage({
     <div
       className={`relative overflow-hidden rounded-2xl border border-slate-800/75 bg-gradient-to-b ${
         palette?.auraGlow ?? 'from-emerald-950/50 via-slate-900 to-slate-950'
-      } flex flex-col justify-between min-h-[340px] shadow-xl`}
+      } flex flex-col justify-between min-h-[520px] lg:min-h-[600px] shadow-xl`}
     >
       {/* Subtle Futsal Pitch / Floodlight Backdrop Marks */}
       <div
@@ -517,7 +517,7 @@ export function CharacterStage({
         className="relative z-10 flex-1 flex items-end justify-center pt-1 px-4 cursor-pointer group focus:outline-none"
       >
         <div
-          className={`w-48 sm:w-52 h-52 flex items-end justify-center transition-transform ${
+          className={`w-60 sm:w-72 h-80 sm:h-96 lg:h-[420px] flex items-end justify-center transition-transform ${
             tapAnimating ? 'animate-character-tap' : 'animate-character-breathe'
           }`}
           onAnimationEnd={() => setTapAnimating(false)}
@@ -539,7 +539,7 @@ export function CharacterStage({
       </button>
 
       {/* Bottom Visual-Novel Speech Bubble */}
-      <div className="relative z-20 mx-3 mb-3 rounded-xl bg-slate-950/92 backdrop-blur-md border border-slate-700/90 p-3.5 shadow-xl space-y-2">
+      <div className="relative z-20 -mt-6 mx-3 mb-3 rounded-xl bg-slate-950/82 backdrop-blur-md border border-slate-700/90 p-3 shadow-xl space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-extrabold text-white truncate">
@@ -564,7 +564,7 @@ export function CharacterStage({
         <p
           onClick={triggerTapDialogue}
           aria-live="polite"
-          className="text-xs sm:text-[13px] text-slate-200 leading-relaxed min-h-[3.25rem] cursor-pointer"
+          className="text-xs sm:text-[13px] text-slate-200 leading-relaxed min-h-[2.75rem] cursor-pointer"
         >
           “{visibleText}”
           {isTyping && (

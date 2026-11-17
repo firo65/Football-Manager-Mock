@@ -29,3 +29,60 @@
   animation: character-tap-bounce 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+@keyframes stat-delta-float {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+  18% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.04);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.96);
+  }
+}
+
+@keyframes grade-fanfare-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.animate-stat-delta-float {
+  opacity: 1;
+}
+
+.animate-grade-fanfare {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-stat-delta-float {
+    animation: stat-delta-float 2.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-grade-fanfare {
+    animation: grade-fanfare-pop 2.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+}
+
+

@@ -20,6 +20,7 @@ import {
   HalftimeZoneReport,
   isGoalkeeperPlayer,
   LegacyRankGrade,
+  LegacySpark,
   MatchPrepId,
   MatchResult,
   MilestoneConditionType,
@@ -5651,6 +5652,171 @@ export function getRecommendedWeeklyCamp(params: {
     campId: bestGapChoice.campId,
     reason: bestGapChoice.reason,
   };
+}
+
+/**
+ * Generates 3 Legacy Spark carryover choices from a completed or eliminated campaign run.
+ */
+export function buildLegacySparkChoices(
+  evaluation: CampaignRunEvaluation
+): LegacySpark[] {
+  const statBonus = evaluation.rank === 'S' ? 4 : evaluation.rank === 'A' ? 3 : 2;
+  return [
+    {
+      id: 'spark_attack',
+      title: "Striker's Spark",
+      emoji: '⚔️',
+      summary: `+${statBonus} Shooting & Pace on Week 1`,
+      statBonus,
+    },
+    {
+      id: 'spark_defense',
+      title: 'Bastion Spark',
+      emoji: '🛡️',
+      summary: `+${statBonus} Defending, Physical & GK Reflexes on Week 1`,
+      statBonus,
+    },
+    {
+      id: 'spark_captaincy',
+      title: "Leader's Spark",
+      emoji: '👑',
+      summary: `+${statBonus + 2} All Captaincy Stats & +${statBonus} Passing on Week 1`,
+      statBonus,
+    },
+  ];
+}
+
+/**
+ * Applies an inherited Legacy Spark buff onto Week 1 starting players.
+ */
+export function applyLegacySparkToPlayers(
+  players: Player[],
+  spark?: LegacySpark | null
+): Player[] {
+  if (!spark) return players;
+
+  return players.map((player) => {
+    const bonus = spark.statBonus;
+    let nextPlayer: Player = player;
+
+    if (spark.id === 'spark_attack') {
+      if (!isGoalkeeperPlayer(player)) {
+        nextPlayer = {
+          ...player,
+          attributes: {
+            ...player.attributes,
+            shooting: clamp0To100(player.attributes.shooting + bonus),
+            pace: clamp0To100(player.attributes.pace + bonus),
+          },
+        };
+      }
+    } else if (spark.id === 'spark_defense') {
+      if (isGoalkeeperPlayer(player)) {
+        nextPlayer = {
+          ...player,
+          attributes: {
+            ...player.attributes,
+            reflexes: clamp0To100(player.attributes.reflexes + bonus),
+            positioning: clamp0To100(player.attributes.positioning + bonus),
+          },
+        };
+      } else {
+        nextPlayer = {
+          ...player,
+          attributes: {
+            ...player.attributes,
+            defending: clamp0To100(player.attributes.defending + bonus),
+            physical: clamp0To100(player.attributes.physical + bonus),
+          },
+        };
+      }
+    } else if (spark.id === 'spark_technique') {
+      if (isGoalkeeperPlayer(player)) {
+        nextPlayer = {
+          ...player,
+          attributes: {
+            ...player.attributes,
+            handling: clamp0To100(player.attributes.handling + bonus),
+            positioning: clamp0To100(player.attributes.positioning + bonus),
+          },
+        };
+      } else {
+        nextPlayer = {
+          ...player,
+          attributes: {
+            ...player.attributes,
+            passing: clamp0To100(player.attributes.passing + bonus),
+            pace: clamp0To100(player.attributes.pace + bonus),
+          },
+        };
+      }
+    } else if (spark.id === 'spark_captaincy') {
+      const capBonus = bonus + 2;
+      const nextCapStats = player.captainStats
+        ? {
+            confidence: clamp0To100(player.captainStats.confidence + capBonus),
+            passion: clamp0To100(player.captainStats.passion + capBonus),
+            charisma: clamp0To100(player.captainStats.charisma + capBonus),
+          }
+        : undefined;
+
+      if (isGoalkeeperPlayer(player)) {
+        nextPlayer = {
+          ...player,
+          captainStats: nextCapStats ?? player.captainStats,
+          attributes: {
+            ...player.attributes,
+            positioning: clamp0To100(player.attributes.positioning + bonus),
+          },
+        };
+      } else {
+        nextPlayer = {
+          ...player,
+          captainStats: nextCapStats ?? player.captainStats,
+          attributes: {
+            ...player.attributes,
+            passing: clamp0To100(player.attributes.passing + bonus),
+          },
+        };
+      }
+    }
+
+    return nextPlayer;
+  });
+}
+
+/**
+ * Distills match or half commentary logs into 3 concise highlight beats for the animated ticker.
+ */
+export function extractMatchHighlightBeats(
+  logs: string[],
+  fallbackFinalLine: string
+): string[] {
+  const clean = logs.map((line) => line.trim()).filter(Boolean);
+  if (clean.length === 0) {
+    return [
+      "01' ⚽ Kickoff whistle blows!",
+      "25' ⚡ Intense midfield battle!",
+      fallbackFinalLine,
+    ];
+  }
+  if (clean.length <= 3) {
+    const padded = [...clean];
+    while (padded.length < 3) {
+      padded.push(fallbackFinalLine);
+    }
+    return padded;
+  }
+
+  const first = clean[0]!;
+  const last = clean[clean.length - 1]!;
+  const middlePool = clean.slice(1, -1);
+  const keyMiddle =
+    middlePool.find((line) => /GOAL|SAVE|EDGE|CHECK|SHOOTOUT/i.test(line)) ??
+    middlePool[Math.floor(middlePool.length / 2)] ??
+    clean[Math.floor(clean.length / 2)]!;
+
+  return [first, keyMiddle, last];
 }
 
 export type {

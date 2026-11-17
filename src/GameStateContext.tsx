@@ -16,6 +16,7 @@ import {
   FacilityId,
   FormationType,
   HalftimeMatchState,
+  LegacySpark,
   MatchPrepId,
   MatchResult,
   OpponentZoneRatings,
@@ -45,6 +46,7 @@ import {
 } from './mockData';
 import {
   applyCaptainEventChoice,
+  applyLegacySparkToPlayers,
   applyTrainingFailurePenalty,
   autoAssignPlayersToFormation,
   buildScheduleFromRegime,
@@ -142,6 +144,7 @@ export interface GameState {
   hasRunCampThisWeek: boolean;
   hasPlayedMatchThisWeek: boolean;
   lastWeekSummary: WeeklyTurnSummary | null;
+  activeLegacySpark?: LegacySpark | null;
 }
 
 const SAVE_STORAGE_KEY = 'futsal_manager_save_v1';
@@ -175,6 +178,7 @@ export const INITIAL_GAME_STATE: GameState = {
   hasRunCampThisWeek: false,
   hasPlayedMatchThisWeek: false,
   lastWeekSummary: null,
+  activeLegacySpark: null,
 };
 
 function loadSavedGameState(fallback: GameState): GameState {
@@ -321,7 +325,7 @@ export type GameAction =
   | { type: 'HEAL_PLAYER_REHAB'; payload: { playerId: string } }
   | { type: 'DISMISS_WEEK_SUMMARY' }
   | { type: 'SET_FEATURED_PLAYER'; payload: { playerId: string } }
-  | { type: 'RESET_GAME' };
+  | { type: 'RESET_GAME'; payload?: { legacySpark?: LegacySpark | null } };
 
 export function applyScheduleTaskToIdol(
   player: Player,
@@ -1680,10 +1684,29 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'RESET_GAME': {
+      const spark = action.payload?.legacySpark ?? null;
+      const sparkedPlayers = applyLegacySparkToPlayers(
+        INITIAL_GAME_STATE.team.players,
+        spark
+      );
+      const nextTeam: Team = {
+        ...INITIAL_GAME_STATE.team,
+        players: sparkedPlayers,
+        idols: sparkedPlayers,
+      };
       return {
         ...INITIAL_GAME_STATE,
+        activeLegacySpark: spark,
+        team: nextTeam,
+        agency: nextTeam,
         weeklySpotlights: rollWeeklyCampSpotlights(1, Math.random),
         seenCaptainEventIds: [],
+        weeklySummaryLogs: spark
+          ? [
+              `[LEGACY SPARK] ${spark.emoji} ${spark.title} inherited (${spark.summary})!`,
+              ...INITIAL_GAME_STATE.weeklySummaryLogs,
+            ]
+          : INITIAL_GAME_STATE.weeklySummaryLogs,
       };
     }
 
@@ -1754,7 +1777,7 @@ export interface GameStateContextValue {
   setFeaturedPlayer: (playerId: string) => void;
   swapPlayerPositions: (playerAId: string, playerBId: string) => void;
   autoFitFormation: () => void;
-  resetGame: () => void;
+  resetGame: (legacySpark?: LegacySpark | null) => void;
 }
 
 export const GameStateContext = createContext<GameStateContextValue | undefined>(
@@ -1884,13 +1907,13 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
         payload: { playerAId, playerBId },
       }),
     autoFitFormation: () => dispatch({ type: 'AUTO_FIT_FORMATION' }),
-    resetGame: () => {
+    resetGame: (legacySpark?: LegacySpark | null) => {
       try {
         window.localStorage.removeItem(SAVE_STORAGE_KEY);
       } catch {
         // Ignore storage errors
       }
-      dispatch({ type: 'RESET_GAME' });
+      dispatch({ type: 'RESET_GAME', payload: { legacySpark } });
     },
   };
 

@@ -454,6 +454,60 @@ export function getStatLetterGrade(value: number): StatLetterGradeInfo {
   };
 }
 
+export interface StatGradeProgressInfo {
+  currentGrade: StatLetterGradeInfo['grade'];
+  nextGrade: StatLetterGradeInfo['grade'] | null;
+  nextThreshold: number | null;
+  pointsToNext: number;
+  progressPct: number;
+  shortLabel: string;
+}
+
+const GRADE_TIERS: { grade: StatLetterGradeInfo['grade']; min: number }[] = [
+  { grade: 'E', min: 0 },
+  { grade: 'D', min: 24 },
+  { grade: 'C', min: 32 },
+  { grade: 'B', min: 40 },
+  { grade: 'A', min: 50 },
+  { grade: 'S', min: 62 },
+  { grade: 'SS', min: 75 },
+];
+
+export function getStatGradeProgress(value: number): StatGradeProgressInfo {
+  const currentGrade = getStatLetterGrade(value).grade;
+  const currentIdx = GRADE_TIERS.findIndex((t) => t.grade === currentGrade);
+  const tierFloor = GRADE_TIERS[currentIdx]?.min ?? 0;
+  const nextTier = GRADE_TIERS[currentIdx + 1];
+
+  if (!nextTier) {
+    return {
+      currentGrade: 'SS',
+      nextGrade: null,
+      nextThreshold: null,
+      pointsToNext: 0,
+      progressPct: 100,
+      shortLabel: 'MAX (SS)',
+    };
+  }
+
+  const nextThreshold = nextTier.min;
+  const span = Math.max(1, nextThreshold - tierFloor);
+  const progressPct = Math.max(
+    0,
+    Math.min(100, Math.round(((value - tierFloor) / span) * 100))
+  );
+  const pointsToNext = Math.max(1, Math.ceil(nextThreshold - value));
+
+  return {
+    currentGrade,
+    nextGrade: nextTier.grade,
+    nextThreshold,
+    pointsToNext,
+    progressPct,
+    shortLabel: `${Math.round(value)}/${nextThreshold} → ${nextTier.grade}`,
+  };
+}
+
 export interface UnifiedMoodPillInfo {
   icon: string;
   label: string;

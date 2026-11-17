@@ -12,10 +12,12 @@ import {
   calculateCampFailureChance,
   computeSquadZonePreview,
   estimateMatchWinProbability,
+  extractMatchHighlightBeats,
   getCaptainRallyBoostMultiplier,
   getFormationMatchupMultiplier,
   getFormationProfile,
   getFormationTraitResonance,
+  getPlayerTraitProgress,
   getRecommendedWeeklyCamp,
   getSquadEnergySummary,
   getTacticalMatchupMultiplier,
@@ -42,6 +44,7 @@ import { CoachTipBanner } from './CoachTutorial';
 import {
   FORMATIONS,
   getCampStatChevrons,
+  getStatGradeProgress,
   getStatLetterGrade,
   getUnifiedMoodPill,
 } from './uiPrimitives';
@@ -113,6 +116,15 @@ interface PillarFeedback {
   gradeUpTo?: string;
   animKey: number;
 }
+
+interface MatchHighlightTickerState {
+  runId: number;
+  title: string;
+  beats: string[];
+  visibleCount: number;
+}
+
+const INSTANT_SKIP_STORAGE_KEY = 'futsal_instant_skip_v1';
 
 const MATCHUP_PILL_CLASS: Record<MatchupTone, string> = {
   adv: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300',
@@ -435,6 +447,18 @@ export function UmaCommandStage({
   onAdvanceWeek: () => void;
 }) {
   const [hoveredCampId, setHoveredCampId] = useState<SquadCampId | null>(null);
+  const [instantSkip, setInstantSkip] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(INSTANT_SKIP_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [activeTicker, setActiveTicker] =
+    useState<MatchHighlightTickerState | null>(null);
+  const prevHalftimeRef = useRef<boolean>(Boolean(halftimeState));
+  const prevPlayedMatchRef = useRef<boolean>(hasPlayedMatchThisWeek);
   const [pillarFeedback, setPillarFeedback] = useState<
     Partial<Record<PillarKey, PillarFeedback>>
   >({});
@@ -442,6 +466,21 @@ export function UmaCommandStage({
     PillarKey,
     { value: number; grade: string }
   > | null>(null);
+
+  const toggleInstantSkip = () => {
+    setInstantSkip((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(INSTANT_SKIP_STORAGE_KEY, String(next));
+      } catch {
+        // Ignore storage errors
+      }
+      if (next) {
+        setActiveTicker(null);
+      }
+      return next;
+    });
+  };
 
   const isTrainingPhase =
     !isCampaignOver &&
@@ -585,6 +624,72 @@ export function UmaCommandStage({
     return () => window.clearTimeout(timer);
   }, [atkVal, defVal, tecVal, capVal]);
 
+  useEffect(() => {
+    const nowHalftime = Boolean(halftimeState);
+    const prevHalftime = prevHalftimeRef.current;
+    prevHalftimeRef.current = nowHalftime;
+
+    if (nowHalftime && !prevHalftime && halftimeState && !instantSkip) {
+      const beats = extractMatchHighlightBeats(
+        halftimeState.firstHalfLogs,
+        `45' ⏱️ Halftime! (${halftimeState.halftimeGoalsFor} - ${halftimeState.halftimeGoalsAgainst})`
+      );
+      setActiveTicker({
+        runId: Date.now(),
+        title: `1st Half Highlights • ${halftimeState.eventName}`,
+        beats,
+        visibleCount: 1,
+      });
+    }
+  }, [halftimeState, instantSkip]);
+
+  useEffect(() => {
+    const nowPlayed = hasPlayedMatchThisWeek;
+    const prevPlayed = prevPlayedMatchRef.current;
+    prevPlayedMatchRef.current = nowPlayed;
+
+    if (nowPlayed && !prevPlayed && !halftimeState && latestMatch && !instantSkip) {
+      const beats = extractMatchHighlightBeats(
+        latestMatch.logMessages,
+        `90' ⏱️ Full Time! (${latestMatch.goalsFor} - ${latestMatch.goalsAgainst})`
+      );
+      setActiveTicker({
+        runId: Date.now(),
+        title: `Full-Time Highlights • ${latestMatch.eventName}`,
+        beats,
+        visibleCount: 1,
+      });
+    }
+  }, [hasPlayedMatchThisWeek, halftimeState, latestMatch, instantSkip]);
+
+  useEffect(() => {
+    if (!activeTicker) return;
+    const runId = activeTicker.runId;
+    const t2 = window.setTimeout(() => {
+      setActiveTicker((curr) =>
+        curr && curr.runId === runId ? { ...curr, visibleCount: 2 } : curr
+      );
+    }, 650);
+    const t3 = window.setTimeout(() => {
+      setActiveTicker((curr) =>
+        curr && curr.runId === runId ? { ...curr, visibleCount: 3 } : curr
+      );
+    }, 1300);
+    const tDone = window.setTimeout(() => {
+      setActiveTicker((curr) => (curr && curr.runId === runId ? null : curr));
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+      window.clearTimeout(tDone);
+    };
+  }, [activeTicker?.runId]);
+
+  const captainTraitProgress = captain ? getPlayerTraitProgress(captain) : [];
+  const nextLockedTrait =
+    captainTraitProgress.find((t) => !t.unlocked) ?? null;
+
   const coachRecommendation = isTrainingPhase
     ? getRecommendedWeeklyCamp({
         players: team.players,
@@ -706,11 +811,19 @@ export function UmaCommandStage({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {statPillars.map((pillar) => {
           const gradeInfo = getStatLetterGrade(pillar.value);
+          const gradeProg = getStatGradeProgress(pillar.value);
           const chevron = chevrons[pillar.key];
           const feedback = pillarFeedback[pillar.key];
+          const capTraitTitle =
+            pillar.key === 'cap'
+              ? nextLockedTrait
+                ? ` • Next Trait: ${nextLockedTrait.trait.name} (${nextLockedTrait.progressText})`
+                : ' • All Captain traits unlocked!'
+              : '';
           return (
             <div
               key={pillar.key}
+              title={`${pillar.label}: ${gradeProg.shortLabel}${capTraitTitle}`}
               className={`relative overflow-visible rounded-2xl border px-3.5 py-2.5 flex items-center justify-between gap-2 transition ${
                 feedback?.gradeUpTo
                   ? 'bg-amber-950/35 border-amber-400/75 shadow-lg shadow-amber-500/15'
@@ -737,7 +850,7 @@ export function UmaCommandStage({
                 </span>
               ) : null}
 
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                   <span>{pillar.icon}</span>
                   <span>{pillar.label}</span>
@@ -756,6 +869,22 @@ export function UmaCommandStage({
                     </span>
                   )}
                 </div>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="flex-1 h-1 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-400/80 transition-all duration-300"
+                      style={{ width: `${gradeProg.progressPct}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-semibold tabular-nums text-slate-400 shrink-0">
+                    {gradeProg.shortLabel}
+                  </span>
+                </div>
+                {pillar.key === 'cap' && nextLockedTrait && (
+                  <p className="text-[10px] text-amber-300/90 font-semibold truncate mt-0.5">
+                    🔒 {nextLockedTrait.trait.name} ({nextLockedTrait.progressText})
+                  </p>
+                )}
               </div>
 
               <span
@@ -862,6 +991,76 @@ export function UmaCommandStage({
         </div>
 
         <div className="lg:col-span-7 flex flex-col">
+          {/* 3-BEAT MATCH HIGHLIGHT TICKER */}
+          {activeTicker && (
+            <div
+              aria-live="polite"
+              className="flex-1 rounded-2xl bg-gradient-to-br from-slate-900 via-indigo-950/60 to-slate-950 border border-amber-400/60 p-5 flex flex-col justify-between space-y-4 shadow-xl"
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 block">
+                    ⚡ Matchday Highlight Reel
+                  </span>
+                  <h3 className="text-base sm:text-lg font-extrabold text-white">
+                    {activeTicker.title}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 3].map((step) => (
+                    <span
+                      key={step}
+                      className={`w-2.5 h-2.5 rounded-full transition ${
+                        activeTicker.visibleCount >= step
+                          ? 'bg-amber-400 shadow shadow-amber-400/50'
+                          : 'bg-slate-800'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col justify-center space-y-3 py-2">
+                {activeTicker.beats
+                  .slice(0, activeTicker.visibleCount)
+                  .map((beat, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
+                        idx === activeTicker.visibleCount - 1
+                          ? 'bg-amber-500/15 border-amber-400/50 text-white shadow-md'
+                          : 'bg-slate-950/75 border-slate-800 text-slate-300'
+                      }`}
+                    >
+                      {beat}
+                    </div>
+                  ))}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={toggleInstantSkip}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                    instantSkip
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                      : 'bg-slate-950/80 border-slate-700 text-slate-300 hover:border-slate-500'
+                  }`}
+                >
+                  ⚡ Always Instant Skip: {instantSkip ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTicker(null)}
+                  className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
+                >
+                  <FastForward className="w-3.5 h-3.5" />
+                  Skip Highlight ▶
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* PHASE A: MON–FRI TRAINING STAGE (Options + Preview on Right) */}
           {isTrainingPhase && (
             <div className="flex-1 rounded-2xl bg-slate-900/80 border border-slate-800/80 p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-xl">
@@ -1079,17 +1278,31 @@ export function UmaCommandStage({
           )}
 
           {/* PHASE B: SUNDAY MATCHDAY ARENA (Options on Right) */}
-          {isMatchdayPhase && (
+          {!activeTicker && isMatchdayPhase && (
             <div className="flex-1 rounded-2xl bg-slate-900/85 border border-indigo-500/45 p-5 flex flex-col justify-between space-y-4 shadow-xl">
 
               {/* 3 Big Visual Stance Cards */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                   <span>Match Stance</span>
-                  <span className="text-amber-300">
-                    Opp plays {STANCE_EMOJI[currentScheduledFixture.favoredTactic]}{' '}
-                    {currentScheduledFixture.favoredTactic}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleInstantSkip}
+                      title="Toggle 3-beat match highlight ticker"
+                      className={`px-2 py-0.5 rounded-md border text-[10px] font-bold transition cursor-pointer ${
+                        instantSkip
+                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                          : 'bg-slate-950/80 border-slate-700 text-slate-300 hover:border-slate-500'
+                      }`}
+                    >
+                      ⚡ Skip: {instantSkip ? 'ON' : 'OFF'}
+                    </button>
+                    <span className="text-amber-300">
+                      Opp plays {STANCE_EMOJI[currentScheduledFixture.favoredTactic]}{' '}
+                      {currentScheduledFixture.favoredTactic}
+                    </span>
+                  </div>
                 </div>
                 <StanceCounterSelector
                   selectedTactic={team.tacticalStyle}
@@ -1155,7 +1368,7 @@ export function UmaCommandStage({
           )}
 
           {/* PHASE C: 45' HALFTIME LOCKER ROOM */}
-          {halftimeState && (
+          {!activeTicker && halftimeState && (
             <div className="flex-1 rounded-2xl bg-gradient-to-br from-amber-950/45 via-slate-900 to-indigo-950/40 border border-amber-400/60 p-5 flex flex-col justify-between space-y-4 shadow-xl">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/25 pb-3">
                 <div>
@@ -1167,13 +1380,27 @@ export function UmaCommandStage({
                     {halftimeState.halftimeGoalsAgainst}
                   </h3>
                 </div>
-                <span className="px-3 py-1 rounded-full bg-slate-950/80 border border-amber-400/40 text-xs font-bold text-amber-200">
-                  Opp: {STANCE_EMOJI[halftimeState.opponentTactic]}{' '}
-                  {halftimeState.opponentTactic}
-                  {halftimeState.opponentFormation
-                    ? ` • ${halftimeState.opponentFormation}`
-                    : ''}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={toggleInstantSkip}
+                    title="Toggle 3-beat match highlight ticker"
+                    className={`px-2.5 py-1 rounded-full border text-[11px] font-bold transition cursor-pointer ${
+                      instantSkip
+                        ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                        : 'bg-slate-950/80 border-slate-700 text-slate-300 hover:border-slate-500'
+                    }`}
+                  >
+                    ⚡ Skip: {instantSkip ? 'ON' : 'OFF'}
+                  </button>
+                  <span className="px-3 py-1 rounded-full bg-slate-950/80 border border-amber-400/40 text-xs font-bold text-amber-200">
+                    Opp: {STANCE_EMOJI[halftimeState.opponentTactic]}{' '}
+                    {halftimeState.opponentTactic}
+                    {halftimeState.opponentFormation
+                      ? ` • ${halftimeState.opponentFormation}`
+                      : ''}
+                  </span>
+                </div>
               </div>
 
               {/* 2nd Half Stance Cards */}
@@ -1228,7 +1455,7 @@ export function UmaCommandStage({
           )}
 
           {/* PHASE D: FULL-TIME RESULT / POST-CAMPAIGN */}
-          {(hasPlayedMatchThisWeek || isCampaignOver) && !halftimeState && (
+          {!activeTicker && (hasPlayedMatchThisWeek || isCampaignOver) && !halftimeState && (
             <div className="flex-1 rounded-2xl bg-slate-900/85 border border-emerald-500/40 p-5 flex flex-col justify-between space-y-4 shadow-xl">
               {latestMatch ? (
                 <div className="space-y-4">

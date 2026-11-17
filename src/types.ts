@@ -641,6 +641,20 @@ export interface HalftimeMatchState {
 
 export type LegacyRankGrade = 'S' | 'A' | 'B' | 'C';
 
+export type LegacySparkId =
+  | 'spark_attack'
+  | 'spark_defense'
+  | 'spark_technique'
+  | 'spark_captaincy';
+
+export interface LegacySpark {
+  id: LegacySparkId;
+  title: string;
+  emoji: string;
+  summary: string;
+  statBonus: number;
+}
+
 export interface CampaignRunEvaluation {
   status: CampaignStatus;
   rank: LegacyRankGrade;

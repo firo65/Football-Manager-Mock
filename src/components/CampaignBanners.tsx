@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { RotateCcw, Sparkles, Trophy, X } from 'lucide-react';
 import { FACILITY_CATALOG } from '../mockData';
+import { buildLegacySparkChoices } from '../simulationEngine';
 import type {
   CampaignRunEvaluation,
   CampaignStatus,
   CaptainEvent,
   HalftimeMatchState,
+  LegacySpark,
   Player,
   WeeklyTurnSummary,
 } from '../types';
@@ -27,8 +30,15 @@ export function CampaignFinaleBanner({
   activeCaptainName: string | undefined;
   totalFans: number;
   unlockedFacilitiesCount: number;
-  onResetGame: () => void;
+  onResetGame: (legacySpark?: LegacySpark | null) => void;
 }) {
+  const sparkChoices = buildLegacySparkChoices(campaignEvaluation);
+  const [selectedSparkId, setSelectedSparkId] = useState<string>(
+    sparkChoices[0]?.id ?? 'spark_attack'
+  );
+  const selectedSpark =
+    sparkChoices.find((s) => s.id === selectedSparkId) ?? sparkChoices[0] ?? null;
+
   if (campaignStatus === 'in_progress') return null;
 
   return (
@@ -120,15 +130,60 @@ export function CampaignFinaleBanner({
         </div>
       </div>
 
+      {/* Legacy Spark Carryover Selector */}
+      <div className="rounded-xl bg-slate-950/75 border border-amber-400/35 p-3.5 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5" />
+            Legacy Spark Carryover (Pick 1 for Next Run)
+          </span>
+          <span className="text-[11px] font-semibold text-slate-400">
+            Grade {campaignEvaluation.rank} Tier (+{selectedSpark?.statBonus ?? 2})
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {sparkChoices.map((spark) => {
+            const active = spark.id === selectedSpark?.id;
+            return (
+              <button
+                key={spark.id}
+                type="button"
+                onClick={() => setSelectedSparkId(spark.id)}
+                className={`text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                  active
+                    ? 'bg-amber-500/20 border-amber-300 ring-1 ring-amber-300/60'
+                    : 'bg-slate-900/80 border-slate-800 hover:border-slate-600'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1 text-xs font-extrabold text-white">
+                  <span>
+                    {spark.emoji} {spark.title}
+                  </span>
+                  {active && (
+                    <span className="text-[10px] text-amber-300 font-black">
+                      ✓ PICKED
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-emerald-300 font-semibold mt-0.5">
+                  {spark.summary}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         <span className="text-xs text-slate-300">{campaignEvaluation.summary}</span>
         <button
           type="button"
-          onClick={onResetGame}
+          onClick={() => onResetGame(selectedSpark)}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs sm:text-sm cursor-pointer transition"
         >
           <RotateCcw className="w-4 h-4" />
-          Start New 12-Week Campaign
+          Inherit Spark &amp; Start New Campaign
         </button>
       </div>
     </div>

@@ -6,10 +6,13 @@ import {
 } from '../GameStateContext';
 import {
   applyBossMatchPerkModifier,
+  applyLegacySparkToPlayers,
+  buildLegacySparkChoices,
   calculateCampFailureChance,
   calculateDiminishingStatGain,
   calculatePlayerPositionalRating,
   computeSquadZonePreview,
+  extractMatchHighlightBeats,
   getCampRolePreview,
   getFormationMatchupMultiplier,
   getFormationTraitResonance,
@@ -24,6 +27,7 @@ import {
 } from '../simulationEngine';
 import { CAPTAIN_EVENTS_POOL } from '../mockData';
 import { pickCharacterLine } from '../dialogueEngine';
+import { getStatGradeProgress } from '../components/uiPrimitives';
 
 describe('State-Machine & Chronological Integrity Rules', () => {
   it('auto-resolves Mon-Fri Camp before Sunday Kickoff if match starts first', () => {
@@ -757,6 +761,70 @@ describe('State-Machine & Chronological Integrity Rules', () => {
         funds: 5000,
       }).campId
     ).toBe('camp_defense');
+  });
+
+  it('computes grade progress, extracts 3 match highlight beats, and applies Legacy Sparks on reset', () => {
+    const midProg = getStatGradeProgress(36);
+    expect(midProg.currentGrade).toBe('C');
+    expect(midProg.nextGrade).toBe('B');
+    expect(midProg.nextThreshold).toBe(40);
+    expect(midProg.pointsToNext).toBe(4);
+    expect(midProg.progressPct).toBe(50);
+
+    const maxProg = getStatGradeProgress(80);
+    expect(maxProg.nextGrade).toBeNull();
+    expect(maxProg.progressPct).toBe(100);
+    expect(maxProg.shortLabel).toBe('MAX (SS)');
+
+    const beats = extractMatchHighlightBeats(
+      [
+        "05' Kickoff underway",
+        "18' Quiet possession",
+        "32' ⚽ GOAL! Vance slots it home!",
+        "45' Halftime whistle",
+      ],
+      "45' Halftime"
+    );
+    expect(beats).toHaveLength(3);
+    expect(beats[1]).toContain('GOAL');
+
+    const paddedBeats = extractMatchHighlightBeats([], "45' Halftime");
+    expect(paddedBeats).toHaveLength(3);
+    expect(paddedBeats[2]).toBe("45' Halftime");
+
+    const sparks = buildLegacySparkChoices({
+      status: 'champion',
+      rank: 'S',
+      legacyScore: 950,
+      title: 'Champions',
+      summary: 'Won the title',
+      wins: 10,
+      draws: 1,
+      losses: 1,
+      goalsFor: 25,
+      goalsAgainst: 8,
+      captainFinalOvr: 48,
+    });
+    expect(sparks).toHaveLength(3);
+    const atkSpark = sparks.find((s) => s.id === 'spark_attack')!;
+    expect(atkSpark.statBonus).toBe(4);
+
+    const sparkedRoster = applyLegacySparkToPlayers(
+      INITIAL_GAME_STATE.team.players,
+      atkSpark
+    );
+    const baseFwd = INITIAL_GAME_STATE.team.players[0]!;
+    const buffedFwd = sparkedRoster[0]!;
+    if ('shooting' in baseFwd.attributes && 'shooting' in buffedFwd.attributes) {
+      expect(buffedFwd.attributes.shooting).toBe(baseFwd.attributes.shooting + 4);
+    }
+
+    const restarted = gameReducer(INITIAL_GAME_STATE, {
+      type: 'RESET_GAME',
+      payload: { legacySpark: atkSpark },
+    });
+    expect(restarted.activeLegacySpark?.id).toBe('spark_attack');
+    expect(restarted.weeklySummaryLogs[0]).toContain('LEGACY SPARK');
   });
 });
 

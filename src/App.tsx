@@ -14,7 +14,7 @@ import {
   getScheduledFixtureForWeek,
   SQUAD_CAMP_OPTIONS,
 } from './mockData';
-import type { FormationType, TacticalStyle } from './types';
+import type { FormationType, LegacySpark, TacticalStyle } from './types';
 import { TopHeader } from './components/TopHeader';
 import {
   CampaignFinaleBanner,
@@ -125,8 +125,8 @@ export default function App() {
     (f) => !team.unlockedFacilities.includes(f.id) && team.funds >= f.cost
   );
 
-  const handleRestartGame = () => {
-    resetGame();
+  const handleRestartGame = (spark?: LegacySpark | null) => {
+    resetGame(spark);
     setHalftimeTactic('Balanced');
     setHalftimeFormation('1-2-2');
     setHalftimeRally(false);
@@ -151,7 +151,7 @@ export default function App() {
           onToggleDrawer={(drawer) =>
             setActiveDrawer((prev) => (prev === drawer ? 'none' : drawer))
           }
-          onRestart={handleRestartGame}
+          onRestart={() => handleRestartGame(null)}
         />
 
         <main className="flex-1 min-h-0 md:overflow-y-auto">

@@ -12,7 +12,6 @@ import {
   calculateCampFailureChance,
   computeSquadZonePreview,
   estimateMatchWinProbability,
-  extractMatchHighlightBeats,
   getCaptainRallyBoostMultiplier,
   getFormationMatchupMultiplier,
   getFormationProfile,
@@ -41,6 +40,7 @@ import type {
 } from '../types';
 import { CharacterStage } from './CharacterStage';
 import { CoachTipBanner } from './CoachTutorial';
+import { Futsal2DPitch } from './Futsal2DPitch';
 import {
   FORMATIONS,
   getCampStatChevrons,
@@ -117,11 +117,9 @@ interface PillarFeedback {
   animKey: number;
 }
 
-interface MatchHighlightTickerState {
+interface ActiveMatchPlayback {
+  half: 1 | 2;
   runId: number;
-  title: string;
-  beats: string[];
-  visibleCount: number;
 }
 
 const INSTANT_SKIP_STORAGE_KEY = 'futsal_instant_skip_v1';
@@ -455,8 +453,12 @@ export function UmaCommandStage({
       return false;
     }
   });
-  const [activeTicker, setActiveTicker] =
-    useState<MatchHighlightTickerState | null>(null);
+  const [activeMatchPlayback, setActiveMatchPlayback] =
+    useState<ActiveMatchPlayback | null>(null);
+  const lastFirstHalfGoalsRef = useRef<{ gf: number; ga: number }>({
+    gf: 0,
+    ga: 0,
+  });
   const prevHalftimeRef = useRef<boolean>(Boolean(halftimeState));
   const prevPlayedMatchRef = useRef<boolean>(hasPlayedMatchThisWeek);
   const [pillarFeedback, setPillarFeedback] = useState<
@@ -476,7 +478,7 @@ export function UmaCommandStage({
         // Ignore storage errors
       }
       if (next) {
-        setActiveTicker(null);
+        setActiveMatchPlayback(null);
       }
       return next;
     });
@@ -629,17 +631,15 @@ export function UmaCommandStage({
     const prevHalftime = prevHalftimeRef.current;
     prevHalftimeRef.current = nowHalftime;
 
+    if (halftimeState) {
+      lastFirstHalfGoalsRef.current = {
+        gf: halftimeState.halftimeGoalsFor,
+        ga: halftimeState.halftimeGoalsAgainst,
+      };
+    }
+
     if (nowHalftime && !prevHalftime && halftimeState && !instantSkip) {
-      const beats = extractMatchHighlightBeats(
-        halftimeState.firstHalfLogs,
-        `45' ⏱️ Halftime! (${halftimeState.halftimeGoalsFor} - ${halftimeState.halftimeGoalsAgainst})`
-      );
-      setActiveTicker({
-        runId: Date.now(),
-        title: `1st Half Highlights • ${halftimeState.eventName}`,
-        beats,
-        visibleCount: 1,
-      });
+      setActiveMatchPlayback({ half: 1, runId: Date.now() });
     }
   }, [halftimeState, instantSkip]);
 
@@ -649,42 +649,15 @@ export function UmaCommandStage({
     prevPlayedMatchRef.current = nowPlayed;
 
     if (nowPlayed && !prevPlayed && !halftimeState && latestMatch && !instantSkip) {
-      const beats = extractMatchHighlightBeats(
-        latestMatch.logMessages,
-        `90' ⏱️ Full Time! (${latestMatch.goalsFor} - ${latestMatch.goalsAgainst})`
-      );
-      setActiveTicker({
-        runId: Date.now(),
-        title: `Full-Time Highlights • ${latestMatch.eventName}`,
-        beats,
-        visibleCount: 1,
-      });
+      setActiveMatchPlayback({ half: 2, runId: Date.now() });
     }
   }, [hasPlayedMatchThisWeek, halftimeState, latestMatch, instantSkip]);
 
   useEffect(() => {
-    if (!activeTicker) return;
-    const runId = activeTicker.runId;
-    const t2 = window.setTimeout(() => {
-      setActiveTicker((curr) =>
-        curr && curr.runId === runId ? { ...curr, visibleCount: 2 } : curr
-      );
-    }, 650);
-    const t3 = window.setTimeout(() => {
-      setActiveTicker((curr) =>
-        curr && curr.runId === runId ? { ...curr, visibleCount: 3 } : curr
-      );
-    }, 1300);
-    const tDone = window.setTimeout(() => {
-      setActiveTicker((curr) => (curr && curr.runId === runId ? null : curr));
-    }, 2200);
-
-    return () => {
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
-      window.clearTimeout(tDone);
-    };
-  }, [activeTicker?.runId]);
+    if (isTrainingPhase) {
+      setActiveMatchPlayback(null);
+    }
+  }, [isTrainingPhase]);
 
   const captainTraitProgress = captain ? getPlayerTraitProgress(captain) : [];
   const nextLockedTrait =
@@ -991,74 +964,54 @@ export function UmaCommandStage({
         </div>
 
         <div className="lg:col-span-7 flex flex-col">
-          {/* 3-BEAT MATCH HIGHLIGHT TICKER */}
-          {activeTicker && (
-            <div
-              aria-live="polite"
-              className="flex-1 rounded-2xl bg-gradient-to-br from-slate-900 via-indigo-950/60 to-slate-950 border border-amber-400/60 p-5 flex flex-col justify-between space-y-4 shadow-xl"
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                <div>
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 block">
-                    ⚡ Matchday Highlight Reel
-                  </span>
-                  <h3 className="text-base sm:text-lg font-extrabold text-white">
-                    {activeTicker.title}
-                  </h3>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {[1, 2, 3].map((step) => (
-                    <span
-                      key={step}
-                      className={`w-2.5 h-2.5 rounded-full transition ${
-                        activeTicker.visibleCount >= step
-                          ? 'bg-amber-400 shadow shadow-amber-400/50'
-                          : 'bg-slate-800'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
+          {/* LIVE 2D FUTSAL MATCH VIEW + COMMENTARY BELOW */}
+          {activeMatchPlayback?.half === 1 && halftimeState && (
+            <Futsal2DPitch
+              key={`pitch-h1-${activeMatchPlayback.runId}`}
+              half={1}
+              eventName={halftimeState.eventName}
+              teamName={team.name}
+              players={activeLineup}
+              ourFormation={halftimeState.formation}
+              ourTactic={halftimeState.tactic}
+              oppFormation={halftimeState.opponentFormation}
+              oppTactic={halftimeState.opponentTactic}
+              startGoalsFor={0}
+              startGoalsAgainst={0}
+              endGoalsFor={halftimeState.halftimeGoalsFor}
+              endGoalsAgainst={halftimeState.halftimeGoalsAgainst}
+              logs={halftimeState.firstHalfLogs}
+              instantSkip={instantSkip}
+              onToggleInstantSkip={toggleInstantSkip}
+              onSelectFeaturedPlayer={onSelectFeaturedPlayer}
+              onComplete={() => setActiveMatchPlayback(null)}
+            />
+          )}
 
-              <div className="flex-1 flex flex-col justify-center space-y-3 py-2">
-                {activeTicker.beats
-                  .slice(0, activeTicker.visibleCount)
-                  .map((beat, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
-                        idx === activeTicker.visibleCount - 1
-                          ? 'bg-amber-500/15 border-amber-400/50 text-white shadow-md'
-                          : 'bg-slate-950/75 border-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {beat}
-                    </div>
-                  ))}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
-                <button
-                  type="button"
-                  onClick={toggleInstantSkip}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                    instantSkip
-                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
-                      : 'bg-slate-950/80 border-slate-700 text-slate-300 hover:border-slate-500'
-                  }`}
-                >
-                  ⚡ Always Instant Skip: {instantSkip ? 'ON' : 'OFF'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTicker(null)}
-                  className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
-                >
-                  <FastForward className="w-3.5 h-3.5" />
-                  Skip Highlight ▶
-                </button>
-              </div>
-            </div>
+          {activeMatchPlayback?.half === 2 && latestMatch && (
+            <Futsal2DPitch
+              key={`pitch-h2-${activeMatchPlayback.runId}`}
+              half={2}
+              eventName={latestMatch.eventName}
+              teamName={team.name}
+              players={activeLineup}
+              ourFormation={latestMatch.formation ?? halftimeFormation}
+              ourTactic={latestMatch.tactic}
+              oppFormation={currentScheduledFixture.opponentFormation}
+              oppTactic={currentScheduledFixture.favoredTactic}
+              startGoalsFor={lastFirstHalfGoalsRef.current.gf}
+              startGoalsAgainst={lastFirstHalfGoalsRef.current.ga}
+              endGoalsFor={latestMatch.goalsFor}
+              endGoalsAgainst={latestMatch.goalsAgainst}
+              logs={latestMatch.logMessages.filter((l) => {
+                const m = /^(\d{1,2})'/.exec(l.trim());
+                return !m || Number(m[1]) >= 46;
+              })}
+              instantSkip={instantSkip}
+              onToggleInstantSkip={toggleInstantSkip}
+              onSelectFeaturedPlayer={onSelectFeaturedPlayer}
+              onComplete={() => setActiveMatchPlayback(null)}
+            />
           )}
 
           {/* PHASE A: MON–FRI TRAINING STAGE (Options + Preview on Right) */}
@@ -1278,7 +1231,7 @@ export function UmaCommandStage({
           )}
 
           {/* PHASE B: SUNDAY MATCHDAY ARENA (Options on Right) */}
-          {!activeTicker && isMatchdayPhase && (
+          {!activeMatchPlayback && isMatchdayPhase && (
             <div className="flex-1 rounded-2xl bg-slate-900/85 border border-indigo-500/45 p-5 flex flex-col justify-between space-y-4 shadow-xl">
 
               {/* 3 Big Visual Stance Cards */}
@@ -1289,7 +1242,7 @@ export function UmaCommandStage({
                     <button
                       type="button"
                       onClick={toggleInstantSkip}
-                      title="Toggle 3-beat match highlight ticker"
+                      title="Toggle live 2D match playback"
                       className={`px-2 py-0.5 rounded-md border text-[10px] font-bold transition cursor-pointer ${
                         instantSkip
                           ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
@@ -1368,7 +1321,7 @@ export function UmaCommandStage({
           )}
 
           {/* PHASE C: 45' HALFTIME LOCKER ROOM */}
-          {!activeTicker && halftimeState && (
+          {!activeMatchPlayback && halftimeState && (
             <div className="flex-1 rounded-2xl bg-gradient-to-br from-amber-950/45 via-slate-900 to-indigo-950/40 border border-amber-400/60 p-5 flex flex-col justify-between space-y-4 shadow-xl">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/25 pb-3">
                 <div>
@@ -1384,7 +1337,7 @@ export function UmaCommandStage({
                   <button
                     type="button"
                     onClick={toggleInstantSkip}
-                    title="Toggle 3-beat match highlight ticker"
+                    title="Toggle live 2D match playback"
                     className={`px-2.5 py-1 rounded-full border text-[11px] font-bold transition cursor-pointer ${
                       instantSkip
                         ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
@@ -1455,7 +1408,7 @@ export function UmaCommandStage({
           )}
 
           {/* PHASE D: FULL-TIME RESULT / POST-CAMPAIGN */}
-          {!activeTicker && (hasPlayedMatchThisWeek || isCampaignOver) && !halftimeState && (
+          {!activeMatchPlayback && (hasPlayedMatchThisWeek || isCampaignOver) && !halftimeState && (
             <div className="flex-1 rounded-2xl bg-slate-900/85 border border-emerald-500/40 p-5 flex flex-col justify-between space-y-4 shadow-xl">
               {latestMatch ? (
                 <div className="space-y-4">

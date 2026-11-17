@@ -4994,6 +4994,74 @@ export function simulateFirstHalf(
       ? 'Trailing at the break — leading opponent will tighten their box (+5% Def, -4% Atk).'
       : 'All square at halftime — subtle tactical edges decide the 2nd half.';
 
+  const firstHalfGoalsForMinutes =
+    halftimeGoalsFor === 1
+      ? [31]
+      : halftimeGoalsFor === 2
+      ? [19, 31]
+      : halftimeGoalsFor === 3
+      ? [19, 31, 40]
+      : [19, 31, 40, 43];
+  const firstHalfGoalLogs: { min: number; text: string }[] = [];
+  for (let g = 0; g < halftimeGoalsFor; g++) {
+    const min = firstHalfGoalsForMinutes[g] ?? 43;
+    const runningFor = g + 1;
+    firstHalfGoalLogs.push({
+      min,
+      text: `${String(min).padStart(2, '0')}' - ⚽ GOAL! ${firstHalfPhase.forward.name} finishes a clinical move! (${runningFor}-${halftimeGoalsAgainst})`,
+    });
+  }
+  const firstHalfOppMinutes =
+    halftimeGoalsAgainst === 1
+      ? [26]
+      : halftimeGoalsAgainst === 2
+      ? [26, 36]
+      : halftimeGoalsAgainst === 3
+      ? [16, 26, 36]
+      : [16, 26, 36, 42];
+  for (let g = 0; g < halftimeGoalsAgainst; g++) {
+    const min = firstHalfOppMinutes[g] ?? 42;
+    firstHalfGoalLogs.push({
+      min,
+      text: `${String(min).padStart(2, '0')}' - 🚨 OPP GOAL! ${eventName} finds a gap and scores!`,
+    });
+  }
+  firstHalfGoalLogs.sort((a, b) => a.min - b.min);
+
+  const firstHalfMiddleEvents: { min: number; text: string }[] = [
+    {
+      min: 14,
+      text: firstHalfPhase.statChecks[0]!.passed
+        ? `14' - Midfield edge won by ${firstHalfPhase.playmaker.name} (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`
+        : `14' - Tight midfield press forces ${firstHalfPhase.playmaker.name} deep (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`,
+    },
+    {
+      min: 22,
+      text: firstHalfPhase.statChecks[1]!.passed
+        ? `22' - Sharp combination frees ${firstHalfPhase.forward.name} in the final third.`
+        : `22' - ${firstHalfPhase.forward.name} tests the edge of the box under heavy marking.`,
+    },
+    ...(halftimeGoalsFor === 0
+      ? [
+          {
+            min: 31,
+            text: `31' - Shot by ${firstHalfPhase.forward.name} parried wide after a sharp combination.`,
+          },
+        ]
+      : []),
+    ...firstHalfGoalLogs,
+    {
+      min: 38,
+      text: firstHalfPhase.statChecks[2]!.passed
+        ? `38' - 🧤 ${firstHalfPhase.defender.name} & ${
+            firstHalfPhase.playerInGoal?.name ?? 'Keeper'
+          } slam the door on a counterattack!`
+        : `38' - ${firstHalfPhase.defender.name} scrambles back as ${
+            firstHalfPhase.playerInGoal?.name ?? 'Keeper'
+          } palms away a low strike.`,
+    },
+  ].sort((a, b) => a.min - b.min);
+
   const firstHalfLogs = [
     `01' - Kickoff! ${formation} (${tactic} vs ${opponentTactic}${
       options?.opponentFormation
@@ -5011,12 +5079,7 @@ export function simulateFirstHalf(
     ...(options?.eventMatchBonus
       ? [`05' - 🎯 DILEMMA EDGE: ${options.eventMatchBonus.label} active!`]
       : []),
-    firstHalfPhase.statChecks[0]!.passed
-      ? `14' - Midfield edge won by ${firstHalfPhase.playmaker.name} (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`
-      : `14' - Tight midfield press forces ${firstHalfPhase.playmaker.name} deep (${firstHalfPhase.midfieldRating} vs ${firstHalfPhase.effectiveOppZones.midfield}).`,
-    halftimeGoalsFor > 0
-      ? `29' - GOAL! ${firstHalfPhase.forward.name} finishes a crisp first-half move! (${halftimeGoalsFor}-${halftimeGoalsAgainst})`
-      : `34' - First-half chances traded carefully as both keepers stay sharp.`,
+    ...firstHalfMiddleEvents.map((e) => e.text),
     `45' - HALFTIME WHISTLE: Score stands ${halftimeGoalsFor} - ${halftimeGoalsAgainst}. ${halftimeMomentum}`,
   ];
 
@@ -5158,6 +5221,68 @@ export function resolveSecondHalf(
       ? `81' - Tough second half as the opposition adapts and nets ${secondHalfAgainst} goal(s) after the break.`
       : `76' - Tight, tactical second half (${secondHalfFor}-${secondHalfAgainst}) down to the wire.`;
 
+  const secondHalfGoalEvents: { min: number; text: string }[] = [
+    {
+      min: 54,
+      text: secondHalfPhase.statChecks[0]!.passed
+        ? `54' - ${secondHalfPhase.playmaker.name} threads crisp second-half passes through the press.`
+        : `54' - ${secondHalfPhase.playmaker.name} battles for midfield space as tempo rises.`,
+    },
+    ...(secondHalfFor === 0
+      ? [
+          {
+            min: 63,
+            text: `63' - ${secondHalfPhase.forward.name} breaks into the channel, forcing a fingertip save.`,
+          },
+        ]
+      : []),
+    {
+      min: secondHalfFor > secondHalfAgainst ? 78 : secondHalfFor < secondHalfAgainst ? 81 : 76,
+      text: secondHalfSummaryLog,
+    },
+    {
+      min: 84,
+      text: secondHalfPhase.statChecks[2]!.passed
+        ? `84' - 🧤 ${secondHalfPhase.playerInGoal?.name ?? secondHalfPhase.defender.name} stands tall under late pressure!`
+        : `84' - ${secondHalfPhase.defender.name} & ${
+            secondHalfPhase.playerInGoal?.name ?? 'Keeper'
+          } absorb a frantic late surge.`,
+    },
+  ];
+
+  const secondForMinutes =
+    secondHalfFor === 1
+      ? [63]
+      : secondHalfFor === 2
+      ? [58, 68]
+      : secondHalfFor === 3
+      ? [58, 68, 79]
+      : [56, 63, 74, 86];
+  for (let g = 0; g < Math.min(4, secondHalfFor); g++) {
+    const min = secondForMinutes[g] ?? 86;
+    secondHalfGoalEvents.push({
+      min,
+      text: `${min}' - ⚽ GOAL! ${secondHalfPhase.forward.name} strikes in the second half!`,
+    });
+  }
+
+  const secondOppMinutes =
+    secondHalfAgainst === 1
+      ? [70]
+      : secondHalfAgainst === 2
+      ? [61, 72]
+      : secondHalfAgainst === 3
+      ? [60, 70, 82]
+      : [57, 65, 73, 85];
+  for (let g = 0; g < Math.min(4, secondHalfAgainst); g++) {
+    const min = secondOppMinutes[g] ?? 85;
+    secondHalfGoalEvents.push({
+      min,
+      text: `${min}' - 🚨 OPP GOAL! ${halftime.eventName} pulls one back on the break!`,
+    });
+  }
+  secondHalfGoalEvents.sort((a, b) => a.min - b.min);
+
   const penScoreSuffix = penaltyShootout
     ? ` (${penaltyShootout.ourScore}-${penaltyShootout.oppScore} P)`
     : '';
@@ -5185,7 +5310,7 @@ export function resolveSecondHalf(
       ...(secondHalfPhase.bossPerkTriggeredNote
         ? [`47' - [BOSS PERK ALERT] ${secondHalfPhase.bossPerkTriggeredNote}`]
         : []),
-      secondHalfSummaryLog,
+      ...secondHalfGoalEvents.map((e) => e.text),
       ...(penaltyLog ? [penaltyLog] : []),
       fullTimeLog,
     ],

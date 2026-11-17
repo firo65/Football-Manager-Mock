@@ -545,7 +545,10 @@ export function Futsal2DPitch({
   onComplete: () => void;
 }) {
   const [speedMultiplier, setSpeedMultiplier] = useState<SpeedMultiplier>(1);
-  const [progress, setProgress] = useState(0);
+  const [{ progress, animSecs }, setSimClock] = useState({
+    progress: 0,
+    animSecs: 0,
+  });
   const commentaryRef = useRef<HTMLDivElement | null>(null);
   const lastSpotlightMinuteRef = useRef<number>(-1);
   const completedRef = useRef(false);
@@ -583,14 +586,19 @@ export function Futsal2DPitch({
     [minStart, minEnd, logs, homeBase, eventName]
   );
 
-  // 5 minutes (300,000ms) per half at 1x speed; cycles across 1x / 2x / 5x / 15x
+  // 5 minutes (300,000ms) per half at 1x speed; animSecs always runs at real-time futsal speed
   useEffect(() => {
-    const tickMs = 80;
+    const tickMs = 50;
     const totalDurationMs = 300000 / speedMultiplier;
-    const step = tickMs / totalDurationMs;
+    const progressStep = tickMs / totalDurationMs;
+    const animStep =
+      (tickMs / 1000) * (speedMultiplier === 1 ? 1 : speedMultiplier === 2 ? 1.35 : 1.75);
 
     const timer = window.setInterval(() => {
-      setProgress((prev) => Math.min(1, prev + step));
+      setSimClock((prev) => ({
+        progress: Math.min(1, prev.progress + progressStep),
+        animSecs: prev.animSecs + animStep,
+      }));
     }, tickMs);
 
     return () => window.clearInterval(timer);
@@ -662,35 +670,65 @@ export function Futsal2DPitch({
 
   const activeBeat = unlockedBeats[unlockedBeats.length - 1] ?? timeline[0]!;
   const zoneShiftX = ZONE_SHIFT_X[activeBeat?.zone ?? 'midfield'];
-  const waveAngle = progress * Math.PI * 36;
+  const waveAngle = animSecs * 2.2;
+  const beatRealSecs = (subT * (300 / 45)) / speedMultiplier;
+  const actionT = Math.min(1, beatRealSecs / 2.2);
+
+  // Real-time pass carousel (~1.15s per crisp pass) for open play
+  const passCycle = animSecs * 0.88;
+  const passIndex = Math.floor(passCycle);
+  const passSub = passCycle % 1;
+  const openSeq = activeBeat
+    ? [
+        activeBeat.fromSlot,
+        activeBeat.toSlot,
+        1 + ((activeBeat.toSlot + 1) % 4),
+        1 + ((activeBeat.fromSlot + 2) % 4),
+      ]
+    : [1, 2, 3, 4];
+  const openFromSlot = openSeq[passIndex % openSeq.length] ?? 1;
+  const openToSlot = openSeq[(passIndex + 1) % openSeq.length] ?? 2;
+
+  const isOpenPlayAction =
+    activeBeat?.action === 'pass' ||
+    activeBeat?.action === 'dribble' ||
+    activeBeat?.action === 'kickoff';
 
   const homeTokens = homeBase.map((slot, idx) => {
     const roleFactor = slot.role === 'GK' ? 0.14 : slot.role === 'DEF' ? 0.68 : 1.0;
     let dx =
       zoneShiftX * roleFactor +
-      Math.sin(waveAngle + idx * 1.4) * (slot.role === 'GK' ? 4 : 11);
-    let dy = Math.cos(waveAngle * 0.9 + idx * 1.7) * (slot.role === 'GK' ? 12 : 14);
+      Math.sin(waveAngle + idx * 1.4) * (slot.role === 'GK' ? 5 : 14);
+    let dy = Math.cos(waveAngle * 0.9 + idx * 1.7) * (slot.role === 'GK' ? 14 : 18);
 
     if (
       activeBeat?.possession === 'home' &&
-      (idx === activeBeat.toSlot || idx === activeBeat.fromSlot) &&
-      idx !== 0
+      idx !== 0 &&
+      (isOpenPlayAction
+        ? idx === openFromSlot || idx === openToSlot
+        : idx === activeBeat.toSlot || idx === activeBeat.fromSlot)
     ) {
-      dx += 14 * Math.sin(subT * Math.PI);
+      dx += 16 * Math.sin((isOpenPlayAction ? passSub : actionT) * Math.PI);
     }
     if (activeBeat?.action === 'home_goal' && slot.role === 'FWD') {
-      const surge = subT < 0.75 ? 1 : 0.4;
+      const surge = actionT < 0.8 ? 1 : 0.35;
       dx = (444 - slot.x) * surge;
       dy = (idx % 2 === 0 ? -10 : 12) * surge;
     }
+
+    const activeCarrierMatch = isOpenPlayAction
+      ? passSub < 0.2
+        ? idx === openFromSlot
+        : idx === openToSlot
+      : actionT < 0.35
+      ? idx === activeBeat?.fromSlot
+      : idx === activeBeat?.toSlot;
 
     return {
       ...slot,
       x: Math.max(28, Math.min(486, slot.x + dx)),
       y: Math.max(26, Math.min(234, slot.y + dy)),
-      isCarrier:
-        activeBeat?.possession === 'home' &&
-        (subT < 0.35 ? idx === activeBeat.fromSlot : idx === activeBeat.toSlot),
+      isCarrier: activeBeat?.possession === 'home' && activeCarrierMatch,
     };
   });
 
@@ -698,23 +736,29 @@ export function Futsal2DPitch({
     const roleFactor = slot.role === 'GK' ? 0.14 : slot.role === 'DEF' ? 0.68 : 1.0;
     let dx =
       zoneShiftX * roleFactor +
-      Math.cos(waveAngle + idx * 1.2) * (slot.role === 'GK' ? 4 : 11);
-    let dy = Math.sin(waveAngle * 0.85 + idx * 1.5) * (slot.role === 'GK' ? 12 : 14);
+      Math.cos(waveAngle + idx * 1.2) * (slot.role === 'GK' ? 5 : 14);
+    let dy = Math.sin(waveAngle * 0.85 + idx * 1.5) * (slot.role === 'GK' ? 14 : 18);
 
     if (activeBeat?.action === 'opp_goal' && slot.role === 'FWD') {
-      const surge = subT < 0.75 ? 1 : 0.4;
+      const surge = actionT < 0.8 ? 1 : 0.35;
       dx = (76 - slot.x) * surge;
       dy = (idx % 2 === 0 ? -12 : 12) * surge;
     }
+
+    const activeCarrierMatch = isOpenPlayAction
+      ? passSub < 0.2
+        ? idx === openFromSlot
+        : idx === openToSlot
+      : actionT < 0.35
+      ? idx === activeBeat?.fromSlot
+      : idx === activeBeat?.toSlot;
 
     return {
       ...slot,
       x: Math.max(34, Math.min(492, slot.x + dx)),
       y: Math.max(26, Math.min(234, slot.y + dy)),
       num: idx === 0 ? 1 : idx + 5,
-      isCarrier:
-        activeBeat?.possession === 'away' &&
-        (subT < 0.35 ? idx === activeBeat.fromSlot : idx === activeBeat.toSlot),
+      isCarrier: activeBeat?.possession === 'away' && activeCarrierMatch,
     };
   });
 
@@ -735,36 +779,36 @@ export function Futsal2DPitch({
     } else if (activeBeat.action === 'home_goal') {
       const attacker = homeTokens[activeBeat.toSlot] ?? homeTokens[4]!;
       const passer = homeTokens[activeBeat.fromSlot] ?? homeTokens[3]!;
-      if (subT < 0.35) {
-        const t = subT / 0.35;
+      if (actionT < 0.35) {
+        const t = actionT / 0.35;
         ballX = passer.x + (attacker.x - passer.x) * t;
         ballY = passer.y + (attacker.y - passer.y) * t;
         passLine = { x1: passer.x, y1: passer.y, x2: attacker.x, y2: attacker.y };
-      } else if (subT < 0.75) {
-        const t = (subT - 0.35) / 0.4;
+      } else if (actionT < 0.8) {
+        const t = (actionT - 0.35) / 0.45;
         ballX = attacker.x + (506 - attacker.x) * t;
         ballY = attacker.y + (130 - attacker.y) * t;
         passLine = { x1: attacker.x, y1: attacker.y, x2: 506, y2: 130 };
       } else {
-        const t = (subT - 0.75) / 0.25;
+        const t = (actionT - 0.8) / 0.2;
         ballX = 506 + (260 - 506) * t;
         ballY = 130;
       }
     } else if (activeBeat.action === 'opp_goal') {
       const attacker = awayTokens[activeBeat.toSlot] ?? awayTokens[4]!;
       const passer = awayTokens[activeBeat.fromSlot] ?? awayTokens[3]!;
-      if (subT < 0.35) {
-        const t = subT / 0.35;
+      if (actionT < 0.35) {
+        const t = actionT / 0.35;
         ballX = passer.x + (attacker.x - passer.x) * t;
         ballY = passer.y + (attacker.y - passer.y) * t;
         passLine = { x1: passer.x, y1: passer.y, x2: attacker.x, y2: attacker.y };
-      } else if (subT < 0.75) {
-        const t = (subT - 0.35) / 0.4;
+      } else if (actionT < 0.8) {
+        const t = (actionT - 0.35) / 0.45;
         ballX = attacker.x + (14 - attacker.x) * t;
         ballY = attacker.y + (130 - attacker.y) * t;
         passLine = { x1: attacker.x, y1: attacker.y, x2: 14, y2: 130 };
       } else {
-        const t = (subT - 0.75) / 0.25;
+        const t = (actionT - 0.8) / 0.2;
         ballX = 14 + (260 - 14) * t;
         ballY = 130;
       }
@@ -777,47 +821,52 @@ export function Futsal2DPitch({
         activeBeat.possession === 'home' ? awayTokens[0]! : homeTokens[0]!;
       const targetY =
         activeBeat.action === 'shot_wide' ? targetGk.y + 34 : targetGk.y;
-      if (subT < 0.6) {
-        const t = subT / 0.6;
+      if (actionT < 0.55) {
+        const t = actionT / 0.55;
         ballX = shooter.x + (targetGk.x - shooter.x) * t;
         ballY = shooter.y + (targetY - shooter.y) * t;
         passLine = { x1: shooter.x, y1: shooter.y, x2: targetGk.x, y2: targetY };
-      } else {
+      } else if (actionT < 0.9) {
         const reboundX =
           activeBeat.possession === 'home' ? targetGk.x - 18 : targetGk.x + 18;
-        const t = (subT - 0.6) / 0.4;
+        const t = (actionT - 0.55) / 0.35;
         ballX = targetGk.x + (reboundX - targetGk.x) * t;
         ballY = targetY + (130 - targetY) * t * 0.4;
+      } else {
+        ballX = fromP.x + (toP.x - fromP.x) * passSub;
+        ballY = fromP.y + (toP.y - fromP.y) * passSub;
       }
     } else if (activeBeat.action === 'intercept') {
       const att = otherArr[activeBeat.fromSlot] ?? otherArr[2]!;
       const winner = teamArr[activeBeat.toSlot] ?? teamArr[1]!;
-      if (subT < 0.45) {
-        const t = subT / 0.45;
+      if (actionT < 0.45) {
+        const t = actionT / 0.45;
         ballX = att.x + ((winner.x - att.x) * 0.5) * t;
         ballY = att.y + ((winner.y - att.y) * 0.5) * t;
-      } else {
-        const t = (subT - 0.45) / 0.55;
+      } else if (actionT < 0.9) {
+        const t = (actionT - 0.45) / 0.45;
         const midX = (att.x + winner.x) * 0.5;
         const midY = (att.y + winner.y) * 0.5;
         ballX = midX + (winner.x - midX) * t;
         ballY = midY + (winner.y - midY) * t;
-      }
-    } else if (activeBeat.action === 'dribble') {
-      const dribbler = toP;
-      const forwardDir = activeBeat.possession === 'home' ? 16 : -16;
-      ballX = dribbler.x + forwardDir * Math.sin(subT * Math.PI * 0.85);
-      ballY = dribbler.y + Math.sin(subT * Math.PI * 2) * 5;
-    } else {
-      // 'pass' or 'kickoff'
-      if (subT < 0.35) {
-        ballX = fromP.x + (activeBeat.possession === 'home' ? 8 : -8);
-        ballY = fromP.y;
       } else {
-        const t = (subT - 0.35) / 0.65;
-        ballX = fromP.x + (toP.x - fromP.x) * t;
-        ballY = fromP.y + (toP.y - fromP.y) * t;
-        passLine = { x1: fromP.x, y1: fromP.y, x2: toP.x, y2: toP.y };
+        const openF = teamArr[openFromSlot] ?? winner;
+        const openT = teamArr[openToSlot] ?? winner;
+        ballX = openF.x + (openT.x - openF.x) * passSub;
+        ballY = openF.y + (openT.y - openF.y) * passSub;
+      }
+    } else {
+      // Real-time passing carousel ('pass' | 'dribble' | 'kickoff')
+      const openF = teamArr[openFromSlot] ?? fromP;
+      const openT = teamArr[openToSlot] ?? toP;
+      if (passSub < 0.2) {
+        ballX = openF.x + (activeBeat.possession === 'home' ? 7 : -7);
+        ballY = openF.y;
+      } else {
+        const t = (passSub - 0.2) / 0.8;
+        ballX = openF.x + (openT.x - openF.x) * t;
+        ballY = openF.y + (openT.y - openF.y) * t;
+        passLine = { x1: openF.x, y1: openF.y, x2: openT.x, y2: openT.y };
       }
     }
   }
@@ -990,10 +1039,7 @@ export function Futsal2DPitch({
           {awayTokens.map((p, idx) => (
             <g
               key={`away-${idx}`}
-              style={{
-                transform: `translate(${p.x}px, ${p.y}px)`,
-                transition: 'transform 120ms linear',
-              }}
+              transform={`translate(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`}
             >
               {p.isCarrier && (
                 <circle
@@ -1028,10 +1074,7 @@ export function Futsal2DPitch({
             return (
               <g
                 key={p.player.id}
-                style={{
-                  transform: `translate(${p.x}px, ${p.y}px)`,
-                  transition: 'transform 120ms linear',
-                }}
+                transform={`translate(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`}
               >
                 {p.isCarrier && (
                   <circle
@@ -1084,12 +1127,7 @@ export function Futsal2DPitch({
           })}
 
           {/* Futsal Ball */}
-          <g
-            style={{
-              transform: `translate(${ballX}px, ${ballY}px)`,
-              transition: 'transform 90ms linear',
-            }}
-          >
+          <g transform={`translate(${ballX.toFixed(1)}, ${ballY.toFixed(1)})`}>
             <circle r="6.5" fill="#000000" fillOpacity="0.35" cy="2" />
             <circle
               r="5.5"

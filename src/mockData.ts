@@ -21,8 +21,8 @@ export const SQUAD_CAMP_OPTIONS: SquadCampDefinition[] = [
     emoji: '⚽',
     description:
       'High-tempo 1v1 finishing and sprint gates. Attackers skyrocket in Shooting & Pace; Defenders & GK get light transition work.',
-    energyCost: 24,
-    stressDelta: 12,
+    energyCost: 17,
+    stressDelta: 10,
     monetaryCost: 1200,
     baseFailureRate: 0.04,
     targetSummary: 'FWD/MID Shooting & Pace (+3 Cap Confidence)',
@@ -36,8 +36,8 @@ export const SQUAD_CAMP_OPTIONS: SquadCampDefinition[] = [
     emoji: '🛡️',
     description:
       'Compact 2-defender zonal traps, physical shielding, and GK box command. Defenders & GK surge; Forwards get light pressing.',
-    energyCost: 24,
-    stressDelta: 12,
+    energyCost: 17,
+    stressDelta: 10,
     monetaryCost: 1200,
     baseFailureRate: 0.04,
     targetSummary: 'DEF/GK Defending & Physical (+3 Cap Passion)',
@@ -51,8 +51,8 @@ export const SQUAD_CAMP_OPTIONS: SquadCampDefinition[] = [
     emoji: '🎯',
     description:
       'One-touch futsal triangles for playmakers paired with point-blank shot-stopping for the goalkeeper.',
-    energyCost: 20,
-    stressDelta: 10,
+    energyCost: 14,
+    stressDelta: 8,
     monetaryCost: 1100,
     baseFailureRate: 0.03,
     targetSummary: 'MID Passing & GK Reflexes (+3 Cap Charisma)',
@@ -66,8 +66,8 @@ export const SQUAD_CAMP_OPTIONS: SquadCampDefinition[] = [
     emoji: '🔥',
     description:
       'Demanding full-intensity intra-squad match prep. Every position trains its natural specialty evenly plus full Captaincy growth.',
-    energyCost: 28,
-    stressDelta: 15,
+    energyCost: 21,
+    stressDelta: 12,
     monetaryCost: 1500,
     baseFailureRate: 0.06,
     targetSummary: 'All 5 Starters Role Stats + +8 Captain Aura',

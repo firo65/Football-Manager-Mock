@@ -1352,15 +1352,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const injuryRecoveryLogs: string[] = [];
       const healedPlayers = postCampState.team.players.map((p) => {
         const rem = p.injuryWeeksRemaining ?? 0;
-        if (rem <= 0) return p;
-        const nextRem = Math.max(0, rem - 1);
-        if (nextRem === 0) {
+        const nextRem = rem > 0 ? Math.max(0, rem - 1) : 0;
+        if (rem > 0 && nextRem === 0) {
           injuryRecoveryLogs.push(
             `[MEDICAL CLEARANCE] ${p.name} recovered from injury and is back at 100% match fitness.`
           );
         }
+        const restedStatus = {
+          ...p.status,
+          stamina: clamp0To100(p.status.stamina + 6),
+          stress: clamp0To100(p.status.stress - 3),
+        };
         return {
           ...p,
+          status: restedStatus,
+          currentMood: p.isBurnedOut
+            ? ('burnout' as const)
+            : derivePlayerMood(restedStatus),
           injuryWeeksRemaining: nextRem,
           injuryReason: nextRem === 0 ? undefined : p.injuryReason,
         };

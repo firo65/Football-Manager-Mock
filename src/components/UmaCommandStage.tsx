@@ -955,10 +955,12 @@ export function UmaCommandStage({
               week: displayWeek,
               players: team.players,
               hasRunCampThisWeek,
-              hasPlayedMatchThisWeek,
+              hasPlayedMatchThisWeek: activeMatchPlayback
+                ? false
+                : hasPlayedMatchThisWeek,
               lastCampOutcome,
               weeklySpotlights,
-              latestMatch: latestMatch ?? null,
+              latestMatch: activeMatchPlayback ? null : latestMatch ?? null,
             }}
           />
         </div>

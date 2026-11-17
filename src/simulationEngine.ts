@@ -4323,15 +4323,15 @@ function evaluatePhaseMatchup(
   const defenseDiff = oppAttackThreat - compositeDefense;
 
   const lambdaFor = Math.max(
-    0.25,
-    Math.min(4.2, 1.55 * Math.exp(attackDiff / 16))
+    0.6,
+    Math.min(6.5, 2.85 * Math.exp(attackDiff / 16))
   );
   const lambdaAgainst = Math.max(
-    0.2,
+    0.45,
     Math.min(
-      4.5,
-      1.35 * Math.exp(defenseDiff / 16) +
-        (basePreview.hasTrueKeeperInGoal ? 0 : 1.6)
+      6.8,
+      2.45 * Math.exp(defenseDiff / 16) +
+        (basePreview.hasTrueKeeperInGoal ? 0 : 1.8)
     )
   );
 
@@ -4940,13 +4940,13 @@ export function simulateFirstHalf(
     }
   );
 
-  // Genuine 1st-Half (45') Poisson goal sampling (0.5x full-match xG)
+  // Genuine 1st-Half (45') Poisson goal sampling (0.5x full-match xG, capped at 5 per half)
   const halftimeGoalsFor = Math.min(
-    4,
+    5,
     samplePoisson(firstHalfPhase.lambdaFor * 0.5, rng)
   );
   const halftimeGoalsAgainst = Math.min(
-    4,
+    5,
     samplePoisson(firstHalfPhase.lambdaAgainst * 0.5, rng)
   );
 
@@ -4998,10 +4998,12 @@ export function simulateFirstHalf(
     halftimeGoalsFor === 1
       ? [31]
       : halftimeGoalsFor === 2
-      ? [19, 31]
+      ? [18, 33]
       : halftimeGoalsFor === 3
-      ? [19, 31, 40]
-      : [19, 31, 40, 43];
+      ? [12, 25, 37]
+      : halftimeGoalsFor === 4
+      ? [10, 20, 31, 41]
+      : [8, 17, 26, 35, 43];
   const firstHalfGoalLogs: { min: number; text: string }[] = [];
   for (let g = 0; g < halftimeGoalsFor; g++) {
     const min = firstHalfGoalsForMinutes[g] ?? 43;
@@ -5015,12 +5017,14 @@ export function simulateFirstHalf(
     halftimeGoalsAgainst === 1
       ? [26]
       : halftimeGoalsAgainst === 2
-      ? [26, 36]
+      ? [16, 35]
       : halftimeGoalsAgainst === 3
-      ? [16, 26, 36]
-      : [16, 26, 36, 42];
+      ? [14, 27, 39]
+      : halftimeGoalsAgainst === 4
+      ? [11, 22, 33, 42]
+      : [9, 19, 29, 37, 44];
   for (let g = 0; g < halftimeGoalsAgainst; g++) {
-    const min = firstHalfOppMinutes[g] ?? 42;
+    const min = firstHalfOppMinutes[g] ?? 44;
     firstHalfGoalLogs.push({
       min,
       text: `${String(min).padStart(2, '0')}' - 🚨 OPP GOAL! ${eventName} finds a gap and scores!`,
@@ -5174,11 +5178,14 @@ export function resolveSecondHalf(
     }
   );
 
-  // Genuine 2nd-Half (46'-90') Poisson goal sampling
-  const secondHalfFor = samplePoisson(secondHalfPhase.lambdaFor * 0.5, rng);
-  const secondHalfAgainst = samplePoisson(
-    secondHalfPhase.lambdaAgainst * 0.5,
-    rng
+  // Genuine 2nd-Half (46'-90') Poisson goal sampling (capped at 5 per half)
+  const secondHalfFor = Math.min(
+    5,
+    samplePoisson(secondHalfPhase.lambdaFor * 0.5, rng)
+  );
+  const secondHalfAgainst = Math.min(
+    5,
+    samplePoisson(secondHalfPhase.lambdaAgainst * 0.5, rng)
   );
 
   const goalsFor = halftime.halftimeGoalsFor + secondHalfFor;
@@ -5254,11 +5261,13 @@ export function resolveSecondHalf(
     secondHalfFor === 1
       ? [63]
       : secondHalfFor === 2
-      ? [58, 68]
+      ? [56, 72]
       : secondHalfFor === 3
-      ? [58, 68, 79]
-      : [56, 63, 74, 86];
-  for (let g = 0; g < Math.min(4, secondHalfFor); g++) {
+      ? [52, 66, 80]
+      : secondHalfFor === 4
+      ? [50, 61, 73, 84]
+      : [49, 58, 67, 77, 86];
+  for (let g = 0; g < Math.min(5, secondHalfFor); g++) {
     const min = secondForMinutes[g] ?? 86;
     secondHalfGoalEvents.push({
       min,
@@ -5270,12 +5279,14 @@ export function resolveSecondHalf(
     secondHalfAgainst === 1
       ? [70]
       : secondHalfAgainst === 2
-      ? [61, 72]
+      ? [59, 75]
       : secondHalfAgainst === 3
-      ? [60, 70, 82]
-      : [57, 65, 73, 85];
-  for (let g = 0; g < Math.min(4, secondHalfAgainst); g++) {
-    const min = secondOppMinutes[g] ?? 85;
+      ? [55, 69, 82]
+      : secondHalfAgainst === 4
+      ? [51, 63, 74, 85]
+      : [50, 60, 70, 79, 87];
+  for (let g = 0; g < Math.min(5, secondHalfAgainst); g++) {
+    const min = secondOppMinutes[g] ?? 87;
     secondHalfGoalEvents.push({
       min,
       text: `${min}' - 🚨 OPP GOAL! ${halftime.eventName} pulls one back on the break!`,
